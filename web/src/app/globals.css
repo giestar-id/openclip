@@ -1,0 +1,285 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #111412;
+  --color-surface: #111412;
+  --color-surface-dim: #0b0e0c;
+  --color-surface-bright: #343a36;
+  --color-surface-container-lowest: #0c0f0d;
+  --color-surface-container-low: #171b18;
+  --color-surface-container: #1c211e;
+  --color-surface-container-high: #252b27;
+  --color-surface-container-highest: #303732;
+
+  --color-primary: #a7d7bc;
+  --color-primary-container: #78b995;
+  --color-primary-fixed: #d0f0dc;
+  --color-primary-fixed-dim: #a7d7bc;
+  --color-on-primary: #14291c;
+  --color-on-primary-container: #14291c;
+
+  --color-secondary: #a7d7bc;
+  --color-secondary-container: #78b995;
+  --color-secondary-fixed: #d0f0dc;
+  --color-secondary-fixed-dim: #a7d7bc;
+  --color-on-secondary: #14291c;
+  --color-on-secondary-container: #14291c;
+
+  --color-tertiary: #ffb95f;
+  --color-tertiary-container: #e79400;
+  --color-tertiary-fixed: #ffddb8;
+  --color-tertiary-fixed-dim: #ffb95f;
+  --color-on-tertiary: #472a00;
+  --color-on-tertiary-container: #563400;
+
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+  --color-on-error: #690005;
+
+  --color-on-surface: #e6e9e5;
+  --color-on-surface-variant: #b5beb8;
+  --color-outline: #87938b;
+  --color-outline-variant: #3b453e;
+
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* Local Caption Fonts */
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/fonts/montserrat-800.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Poppins';
+  src: url('/fonts/poppins-700.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Anton';
+  src: url('/fonts/anton-400.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Bebas Neue';
+  src: url('/fonts/bebas-neue-400.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Bangers';
+  src: url('/fonts/bangers-400.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Archivo Black';
+  src: url('/fonts/archivo-black-400.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Luckiest Guy';
+  src: url('/fonts/luckiest-guy-400.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter-700.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+body {
+  background-color: #111412;
+  color: #e6e9e5;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* { box-sizing: border-box; }
+
+button, a, input, select, textarea {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 160ms;
+  transition-timing-function: ease;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+input, select, textarea, option, [contenteditable="true"] { user-select: text; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d0e15;
+}
+::-webkit-scrollbar-thumb {
+  background: #292931;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3d494c;
+}
+
+/* Responsive application shell: the desktop tool rail becomes a bottom dock. */
+@media (max-width: 720px) {
+  body { padding-bottom: env(safe-area-inset-bottom); }
+
+  aside.fixed {
+    inset: auto 0 0 !important;
+    z-index: 60 !important;
+    width: 100% !important;
+    height: calc(3.75rem + env(safe-area-inset-bottom)) !important;
+    padding: 0.35rem max(0.5rem, env(safe-area-inset-right)) calc(0.35rem + env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left)) !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    border-top: 1px solid #303732 !important;
+    border-right: 0 !important;
+    background: rgba(12, 15, 13, 0.97) !important;
+    box-shadow: 0 -8px 24px rgb(0 0 0 / 18%) !important;
+    backdrop-filter: blur(18px);
+  }
+
+  aside.fixed nav,
+  aside.fixed > div {
+    flex-direction: row !important;
+    align-items: center !important;
+    width: auto !important;
+    gap: 0.15rem !important;
+    padding: 0 !important;
+  }
+
+  aside.fixed nav { flex: 1; justify-content: space-between; min-width: 0; }
+  aside.fixed > div { margin-left: 0.2rem; border-left: 1px solid #303732; padding-left: 0.2rem !important; }
+
+  aside.fixed nav a,
+  aside.fixed > div a {
+    width: 2.55rem !important;
+    height: 2.55rem !important;
+    min-width: 2.35rem;
+    border-radius: 0.8rem !important;
+  }
+
+  aside.fixed nav a > span:last-child,
+  aside.fixed > div a > span:last-child { display: none; }
+
+  aside.fixed nav a .material-symbols-outlined,
+  aside.fixed > div a .material-symbols-outlined { font-size: 21px !important; }
+
+  main.pl-16 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    padding-bottom: 5.25rem !important;
+  }
+
+  .editor-workspace {
+    height: calc(100dvh - 9.25rem) !important;
+    max-height: calc(100dvh - 9.25rem) !important;
+    padding-left: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .editor-stage { flex-direction: column !important; overflow-y: auto !important; }
+  .editor-stage > section:first-child { min-height: 42dvh; flex: 0 0 42dvh; }
+  .editor-stage > section:last-child {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 16rem;
+    flex: 1 0 16rem;
+  }
+
+  .editor-toolbar-inner { gap: 0.4rem !important; padding-inline: 0.65rem !important; }
+  .editor-brand-name, .editor-save-status, .editor-ratio { display: none !important; }
+  .editor-title { min-width: 0; }
+  .editor-export-actions { gap: 0.35rem !important; }
+  .editor-export-actions a, .editor-export-actions button { padding-inline: 0.65rem !important; }
+  .editor-export-actions button > span:last-child { display: none; }
+
+  .video-player-toolbar { height: auto !important; min-height: 2.5rem; padding-inline: 0.5rem !important; }
+  .video-player-tools { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; }
+  .video-player-tools::-webkit-scrollbar { display: none; }
+  .video-player-actions { flex: 0 0 auto; }
+  .video-player-actions a { padding-inline: 0.45rem !important; }
+  .video-player-actions a > span:last-child,
+  .video-player-actions > span { display: none !important; }
+}
+
+@media (max-width: 420px) {
+  aside.fixed nav a, aside.fixed > div a { width: 2.3rem !important; min-width: 2.2rem; }
+  .editor-toolbar-inner { padding-inline: 0.45rem !important; }
+}
+
+@media (min-width: 721px) and (max-width: 1050px) {
+  .editor-toolbar-inner { gap: 0.4rem !important; padding-inline: 0.7rem !important; }
+  .editor-brand-name, .editor-save-status, .editor-ratio { display: none !important; }
+  .editor-export-actions { gap: 0.35rem !important; }
+  .editor-export-actions a, .editor-export-actions button { padding-inline: 0.65rem !important; }
+  .editor-export-actions button > span:last-child { display: none; }
+  .editor-stage { flex-direction: column !important; overflow-y: auto !important; }
+  .editor-stage > section:first-child { min-height: min(52dvh, 34rem); flex: 0 0 min(52dvh, 34rem); }
+  .editor-stage > section:last-child { width: 100% !important; max-width: none !important; min-height: 17rem; flex: 1 0 17rem; }
+}
+
+/* Material Symbols sizing */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Allow natural vertical page scrolling across pages */
+html {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+

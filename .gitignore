@@ -1,0 +1,102 @@
+# ==========================================
+# Clipper — Master Git Ignore Configuration
+# ==========================================
+
+# 1. Environment & Secrets (Penting: jangan upload API key ke git)
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+worker/.env
+web/.env
+web/.env*.local
+*.pem
+
+# (Pertahankan file contoh .env)
+!.env.example
+!worker/.env.example
+!web/.env.example
+
+# 2. Database Files (SQLite & MySQL dumps)
+# Abaikan database aktif saat runtime & journal WAL, pertahankan schema SQL
+database/*.db
+database/*.db-wal
+database/*.db-shm
+database/*.sqlite
+database/*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+!database/schema.sql
+!database/schema_sqlite.sql
+!database/migrate.py
+
+# 3. Media Storage & AI Models (File besar: Gigabytes)
+storage/projects/*
+!storage/projects/.gitkeep
+storage/models/*
+!storage/models/.gitkeep
+!storage/models/face/
+!storage/models/face/**
+storage/exports/*
+!storage/exports/.gitkeep
+storage/scratch_*
+storage/test_*
+storage/test_exports/
+storage/test_run/
+
+# 4. Python Worker & Virtual Environment
+worker/.venv/
+.venv/
+env/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+worker/bin/*.exe
+worker/storage/
+*.exe
+
+# 5. Web Frontend (Next.js & Node.js)
+web/node_modules/
+node_modules/
+web/.next/
+.next/
+web/out/
+out/
+web/build/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+
+# 6. Logs & Debugging
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+
+# 7. Operating System & IDE Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.sublime-project
+*.sublime-workspace

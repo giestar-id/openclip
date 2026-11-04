@@ -1,0 +1,90 @@
+[
+  {
+    "family": "Montserrat",
+    "internalFamily": "Montserrat",
+    "file": "montserrat-800.ttf",
+    "weight": 800,
+    "unitsPerEm": 1000,
+    "winAscent": 1109,
+    "winDescent": 453,
+    "hheaAscent": 968,
+    "hheaDescent": -251
+  },
+  {
+    "family": "Poppins",
+    "internalFamily": "Poppins",
+    "file": "poppins-700.ttf",
+    "weight": 700,
+    "unitsPerEm": 1000,
+    "winAscent": 1135,
+    "winDescent": 627,
+    "hheaAscent": 1050,
+    "hheaDescent": -350
+  },
+  {
+    "family": "Anton",
+    "internalFamily": "Anton",
+    "file": "anton-400.ttf",
+    "weight": 400,
+    "unitsPerEm": 2048,
+    "winAscent": 2876,
+    "winDescent": 674,
+    "hheaAscent": 2409,
+    "hheaDescent": -674
+  },
+  {
+    "family": "Bebas Neue",
+    "internalFamily": "Bebas Neue",
+    "file": "bebas-neue-400.ttf",
+    "weight": 400,
+    "unitsPerEm": 1000,
+    "winAscent": 950,
+    "winDescent": 350,
+    "hheaAscent": 900,
+    "hheaDescent": -300
+  },
+  {
+    "family": "Bangers",
+    "internalFamily": "Bangers",
+    "file": "bangers-400.ttf",
+    "weight": 400,
+    "unitsPerEm": 1000,
+    "winAscent": 1401,
+    "winDescent": 356,
+    "hheaAscent": 883,
+    "hheaDescent": -181
+  },
+  {
+    "family": "Archivo Black",
+    "internalFamily": "Archivo Black",
+    "file": "archivo-black-400.ttf",
+    "weight": 400,
+    "unitsPerEm": 1000,
+    "winAscent": 1035,
+    "winDescent": 312,
+    "hheaAscent": 878,
+    "hheaDescent": -210
+  },
+  {
+    "family": "Luckiest Guy",
+    "internalFamily": "Luckiest Guy",
+    "file": "luckiest-guy-400.ttf",
+    "weight": 400,
+    "unitsPerEm": 2048,
+    "winAscent": 2006,
+    "winDescent": 504,
+    "hheaAscent": 1440,
+    "hheaDescent": -608
+  },
+  {
+    "family": "Inter",
+    "internalFamily": "Inter",
+    "file": "inter-700.ttf",
+    "weight": 700,
+    "unitsPerEm": 2048,
+    "winAscent": 2269,
+    "winDescent": 660,
+    "hheaAscent": 1984,
+    "hheaDescent": -494
+  }
+]
