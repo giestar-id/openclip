@@ -115,7 +115,7 @@ if %errorlevel% neq 0 (
 
 :: 7. Unduh font bawaan untuk subtitle
 echo.
-echo [4/5] Mengunduh & memvalidasi font bawaan subtitle...
+echo [4/5] Mengunduh dan memvalidasi font bawaan subtitle...
 cd /d "%WORKER_DIR%"
 if "%HAS_UV%"=="1" (
     call uv run python scripts/download_fonts.py
@@ -135,7 +135,7 @@ if "%HAS_UV%"=="1" (
 
 echo.
 echo ============================================================
-echo   INSTALASI & SETUP SELESAI DENGAN SUKSES! (100%%)
+echo   INSTALASI DAN SETUP SELESAI DENGAN SUKSES! (100%%)
 echo ============================================================
 echo Sekarang Anda bisa langsung menjalankan OpenClip:
 echo   - Cukup klik ganda: start.bat
