@@ -53,6 +53,7 @@ def startup_check() -> bool:
         print(f"[OK] Database SQLite  : Terhubung ({config.DB_PATH})")
     except Exception as e:
         print(f"[FAIL] Database SQLite: GAGAL - {e}")
+        print("  Saran: Pastikan file database tidak sedang dikunci proses lain atau izin folder terbuka.")
         all_ok = False
 
     # 2. FFmpeg
@@ -61,6 +62,7 @@ def startup_check() -> bool:
         print(f"[OK] FFmpeg Binary    : {ff}")
     except Exception as e:
         print(f"[FAIL] FFmpeg         : GAGAL - {e}")
+        print("  Saran: Pastikan paket imageio-ffmpeg terpasang atau jalankan: uv sync")
         all_ok = False
 
     # 3. Storage & Fonts
@@ -69,7 +71,11 @@ def startup_check() -> bool:
     (config.STORAGE_DIR / "exports").mkdir(parents=True, exist_ok=True)
     fonts_exist = list(config.FONTS_DIR.glob("*.ttf")) if config.FONTS_DIR.exists() else []
     print(f"[OK] Storage Dir      : {config.STORAGE_DIR}")
-    print(f"[OK] Fonts Available  : {len(fonts_exist)} TTF files di {config.FONTS_DIR}")
+    if fonts_exist:
+        print(f"[OK] Fonts Available  : {len(fonts_exist)} TTF files di {config.FONTS_DIR}")
+    else:
+        print(f"[PERINGATAN] Font TTF : Belum ada font di {config.FONTS_DIR}")
+        print("  Catatan: Subtitle akan menggunakan font sistem. Jalankan 'scripts/download_fonts.py' untuk mengunduh font bawaan.")
 
     # 4. Settings & Mode
     settings = db.get_settings()
@@ -108,6 +114,7 @@ def startup_check() -> bool:
             warn_msg = f"Mode transkrip API ({t_prov}) dipilih tetapi API key kosong di Database / .env!"
             print(f"\n[PERINGATAN] {warn_msg}")
             print("  Saran: Isi API key di Pengaturan Web UI atau file worker/.env.")
+            print("  Catatan: Sistem akan otomatis fallback ke Transkrip Lokal (faster-whisper) jika kunci belum diisi.")
             logger.warning(warn_msg)
         else:
             info = keys_info.get(t_prov, {})

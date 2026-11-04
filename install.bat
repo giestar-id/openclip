@@ -19,16 +19,26 @@ set "STORAGE_DIR=%BASE_DIR%storage"
 echo [0/5] Memeriksa prasyarat sistem...
 where node >nul 2>nul
 if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
     echo [ERROR] Node.js belum terpasang di komputer ini!
-    echo Silakan unduh dan pasang Node.js ^(v18 ke atas^) dari: https://nodejs.org/
-    echo Setelah instalasi Node.js selesai, jalankan kembali install.bat.
+    echo ------------------------------------------------------------
+    echo Solusi:
+    echo   1. Unduh dan pasang Node.js ^(v18 ke atas^) dari: https://nodejs.org/
+    echo   2. Setelah instalasi Node.js selesai, jalankan kembali install.bat.
+    echo ============================================================
     pause
     exit /b 1
 )
 
 where npm >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] npm tidak terdeteksi! Pastikan instalasi Node.js menyertakan npm.
+    echo.
+    echo ============================================================
+    echo [ERROR] npm tidak terdeteksi!
+    echo ------------------------------------------------------------
+    echo Solusi: Pastikan instalasi Node.js Anda menyertakan npm.
+    echo ============================================================
     pause
     exit /b 1
 )
@@ -42,10 +52,17 @@ if %errorlevel% equ 0 (
 ) else (
     where python >nul 2>nul
     if %errorlevel% neq 0 (
+        echo.
+        echo ============================================================
         echo [ERROR] Python maupun uv belum terpasang di komputer ini!
-        echo Silakan pasang uv ^(sangat direkomendasikan^):
-        echo   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-        echo Atau pasang Python 3.10 - 3.12 dari: https://www.python.org/downloads/
+        echo ------------------------------------------------------------
+        echo Solusi ^(pilih salah satu^):
+        echo   1. Pasang uv ^(Sangat direkomendasikan, super cepat^):
+        echo      Buka PowerShell lalu jalankan:
+        echo      powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+        echo   2. Atau pasang Python 3.10 - 3.12 dari: https://www.python.org/downloads/
+        echo      ^(Centang 'Add Python to PATH' saat install^)
+        echo ============================================================
         pause
         exit /b 1
     )
@@ -85,7 +102,17 @@ echo [2/5] Menginstall dependensi Web Frontend (npm install)...
 cd /d "%WEB_DIR%"
 call npm install --no-audit --no-fund
 if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
     echo [ERROR] Gagal menjalankan npm install pada folder web!
+    echo ------------------------------------------------------------
+    echo Kemungkinan penyebab:
+    echo   1. Koneksi internet terputus saat mengunduh paket.
+    echo   2. File cache npm korup.
+    echo Solusi:
+    echo   - Periksa koneksi internet Anda.
+    echo   - Coba hapus folder '%WEB_DIR%\node_modules' jika ada, lalu jalankan kembali install.bat.
+    echo ============================================================
     pause
     exit /b 1
 )
@@ -108,7 +135,18 @@ if "%HAS_UV%"=="1" (
 )
 
 if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
     echo [ERROR] Gagal menginstall dependensi worker Python!
+    echo ------------------------------------------------------------
+    echo Kemungkinan penyebab:
+    echo   1. Koneksi internet terputus.
+    echo   2. Versi Python tidak kompatibel ^(disarankan Python 3.10 - 3.12^).
+    echo Solusi:
+    echo   - Pastikan koneksi internet stabil.
+    echo   - Pasang uv untuk isolasi lingkungan:
+    echo     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+    echo ============================================================
     pause
     exit /b 1
 )
@@ -122,6 +160,13 @@ if "%HAS_UV%"=="1" (
 ) else (
     call .venv\Scripts\python scripts/download_fonts.py
 )
+if %errorlevel% neq 0 (
+    echo.
+    echo [PERINGATAN] Sebagian font subtitle tidak dapat diunduh ^(koneksi internet lambat/offline^).
+    echo   Aplikasi tetap dapat berjalan normal menggunakan font standar sistem.
+    echo   Anda dapat mengunduh font nanti dengan: cd worker ^& uv run python scripts/download_fonts.py
+    echo.
+)
 
 :: 8. Diagnostic & Inisialisasi Database
 echo.
@@ -131,6 +176,18 @@ if "%HAS_UV%"=="1" (
     call uv run python main.py --check
 ) else (
     call .venv\Scripts\python main.py --check
+)
+
+if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
+    echo [PERINGATAN] Diagnostik sistem mendeteksi kendala pada worker!
+    echo ------------------------------------------------------------
+    echo Silakan periksa detail baris [FAIL] di atas.
+    echo Anda tetap dapat mencoba menjalankan aplikasi: start.bat
+    echo ============================================================
+    pause
+    exit /b 1
 )
 
 echo.

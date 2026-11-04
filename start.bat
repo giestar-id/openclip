@@ -12,12 +12,26 @@ set "BASE_DIR=%~dp0"
 set "WEB_DIR=%BASE_DIR%web"
 set "WORKER_DIR=%BASE_DIR%worker"
 
-:: 2. Auto-check jika belum install
-if not exist "%WEB_DIR%\node_modules" (
-    echo [INFO] Dependensi belum terpasang. Menjalankan auto installer terlebih dahulu...
+:: 2. Auto-check jika dependensi belum terpasang
+set "NEED_INSTALL=0"
+if not exist "%WEB_DIR%\node_modules" set "NEED_INSTALL=1"
+if not exist "%WORKER_DIR%\.venv" set "NEED_INSTALL=1"
+
+if "!NEED_INSTALL!"=="1" (
+    echo [INFO] Dependensi Web atau AI Worker belum terpasang lengkap.
+    echo Menjalankan auto installer ^(install.bat^) terlebih dahulu...
+    echo.
     if exist "%BASE_DIR%install.bat" (
         call "%BASE_DIR%install.bat"
     )
+)
+
+:: 3. Verifikasi ketersediaan Node.js & Python
+where node >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [ERROR] Node.js belum terpasang. Silakan jalankan install.bat terlebih dahulu!
+    pause
+    exit /b 1
 )
 
 echo [1/2] Menyalakan Web Server Next.js (Port 3000)...
@@ -38,6 +52,9 @@ echo   Aplikasi otomatis terbuka di: http://localhost:3000
 echo.
 echo   - Jendela 1: OpenClip Web Server (Next.js)
 echo   - Jendela 2: OpenClip AI Worker Daemon (Transkrip, Crop dan Export)
+echo.
+echo   Catatan: Jika port 3000 sedang dipakai aplikasi lain,
+echo   Next.js akan otomatis beralih ke http://localhost:3001.
 echo.
 echo   (Untuk mematikan sistem, cukup tutup kedua jendela CMD tersebut)
 echo ============================================================
