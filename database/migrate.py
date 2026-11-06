@@ -1,7 +1,6 @@
 import sqlite3
 import os
 import json
-import pymysql
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, 'database', 'clipper.db')
@@ -17,6 +16,12 @@ def init_sqlite():
     return conn
 
 def migrate_from_mysql(sqlite_conn):
+    try:
+        import pymysql
+    except ImportError:
+        print("Note: pymysql is not installed. Skipping MySQL migration, fresh SQLite database ready.")
+        return
+
     try:
         my_conn = pymysql.connect(
             host='127.0.0.1',
