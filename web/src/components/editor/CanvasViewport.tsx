@@ -2805,6 +2805,14 @@ export function CanvasViewport({
               )}
             </div>
           )}
+
+          {/* Safe Guides Overlay (TikTok, Reels, Shorts, Rule of Thirds Grid) */}
+          {safeGuides && (
+            <PlatformGuidesOverlay
+              preset={frame.safeZonePreset || 'tiktok'}
+              showGridSafe={safeGuides}
+            />
+          )}
         </div>
       </div>
 
