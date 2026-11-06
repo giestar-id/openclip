@@ -201,6 +201,15 @@ def _build_dynamic_crop_x_expr(
                 s_dict["offsetX"] = matching_spk.get("offset_x", 0.0)
             cleaned_shots.append(s_dict)
 
+        if len(cleaned_shots) > 40:
+            while len(cleaned_shots) > 40:
+                min_i = min(
+                    range(len(cleaned_shots) - 1),
+                    key=lambda idx: float(cleaned_shots[idx].get("end", 0.0)) - float(cleaned_shots[idx].get("start", 0.0)),
+                )
+                cleaned_shots[min_i]["end"] = cleaned_shots[min_i + 1]["end"]
+                cleaned_shots.pop(min_i + 1)
+
         last_off = max(-0.50, min(0.50, float(cleaned_shots[-1].get("offsetX", 0.0)) / 100.0))
         expr = f"{last_off:.3f}"
         for s in reversed(cleaned_shots[:-1]):
@@ -211,6 +220,19 @@ def _build_dynamic_crop_x_expr(
 
     # 2. Smooth Camera Follow (Presenter / vlogger berjalan di panggung dengan Catmull-Rom Spline)
     elif tracking_mode == "smooth_follow" and len(keyframes) >= 3:
+        if len(keyframes) > 45:
+            # Subsample keyframe agar aman dari batas stack FFmpeg (< 80)
+            selected_indices = {0, len(keyframes) - 1}
+            scores = []
+            for idx in range(1, len(keyframes) - 1):
+                d1 = abs(float(keyframes[idx].get("offsetX", 0.0)) - float(keyframes[idx - 1].get("offsetX", 0.0)))
+                d2 = abs(float(keyframes[idx + 1].get("offsetX", 0.0)) - float(keyframes[idx].get("offsetX", 0.0)))
+                scores.append((d1 + d2, idx))
+            scores.sort(key=lambda x: x[0], reverse=True)
+            for _, idx in scores[:43]:
+                selected_indices.add(idx)
+            keyframes = [keyframes[i] for i in sorted(selected_indices)]
+
         last_off = max(-0.50, min(0.50, float(keyframes[-1].get("offsetX", 0.0)) / 100.0))
         expr = f"{last_off:.3f}"
         for i in range(len(keyframes) - 2, -1, -1):
@@ -504,13 +526,20 @@ def build_filtergraph(
     else:
         # Default: Crop / Face Track (center crop atau smart face framing terpusat)
         eff_zoom = max(zoom, 1.0 + 2.05 * abs(offset_y))
+        w_scaled = int(round(target_w * eff_zoom))
+        w_scaled = w_scaled if w_scaled % 2 == 0 else w_scaled + 1
+        h_scaled = int(round(target_h * eff_zoom))
+        h_scaled = h_scaled if h_scaled % 2 == 0 else h_scaled + 1
+
         crop_x = _build_dynamic_crop_x_expr(frame, target_w, offset_x)
         crop_y = f"min(ih-{target_h},max(0,(ih-{target_h})/2-({target_h}*{offset_y:.3f})))"
+
+        scale_filter = f"scale='if(gt(a,{target_w}/{target_h}),-2,{w_scaled})':'if(gt(a,{target_w}/{target_h}),{h_scaled},-2)'"
 
         if has_overlay:
             fc = (
                 f"[0:v]{fx_prefix}"
-                f"scale='if(gt(a,{target_w}/{target_h}),-2,{target_w}*{eff_zoom:.3f})':'if(gt(a,{target_w}/{target_h}),{target_h}*{eff_zoom:.3f},-2)',"
+                f"{scale_filter},"
                 f"crop={target_w}:{target_h}:'{crop_x}':'{crop_y}'[v_cropped];"
                 f"movie='{esc_ov}'[ov];"
                 f"[v_cropped][ov]overlay=0:0[v_with_ov];"
@@ -521,7 +550,7 @@ def build_filtergraph(
             filters = []
             if fx:
                 filters.append(fx)
-            filters.append(f"scale='if(gt(a,{target_w}/{target_h}),-2,{target_w}*{eff_zoom:.3f})':'if(gt(a,{target_w}/{target_h}),{target_h}*{eff_zoom:.3f},-2)'")
+            filters.append(scale_filter)
             filters.append(f"crop={target_w}:{target_h}:'{crop_x}':'{crop_y}'")
             if post_str:
                 filters.append(post_str)

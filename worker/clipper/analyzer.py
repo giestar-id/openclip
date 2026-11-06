@@ -368,31 +368,38 @@ def _call_gemini(prompt: str, on_progress: Any = None) -> dict | None:
 
 
 def _parse_json(raw: str) -> dict | None:
+    if not raw or not isinstance(raw, str):
+        return None
     raw = raw.strip()
-    if raw.startswith("```json"):
-        raw = raw[7:]
-    elif raw.startswith("```"):
-        raw = raw[3:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
-    raw = raw.strip()
+    raw_clean = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.MULTILINE)
+    raw_clean = re.sub(r"\s*```$", "", raw_clean, flags=re.MULTILINE).strip()
 
     def normalize(data: Any) -> dict | None:
         if isinstance(data, list):
             return {"clips": data}
         if isinstance(data, dict):
-            if "clips" not in data and "data" in data and isinstance(data["data"], list):
-                data["clips"] = data["data"]
+            for k in ("clips", "data", "klip", "items", "results", "candidates"):
+                if k in data and isinstance(data[k], list):
+                    return {"clips": data[k]}
             return data
         return None
 
-    try:
-        data = json.loads(raw)
-        norm = normalize(data)
-        if norm:
-            return norm
-    except Exception:
-        pass
+    def try_loads(s: str) -> dict | None:
+        try:
+            return normalize(json.loads(s, strict=False))
+        except Exception:
+            pass
+        # Bersihkan trailing comma e.g. [..., ] atau {"a": 1, }
+        cleaned = re.sub(r",\s*([\]}])", r"\1", s)
+        try:
+            return normalize(json.loads(cleaned, strict=False))
+        except Exception:
+            pass
+        return None
+
+    res = try_loads(raw_clean)
+    if res:
+        return res
 
     # Coba regex extract JSON berdasarkan mana yang muncul lebih awal: '[' atau '{'
     idx_brace = raw.find("{")
@@ -406,13 +413,9 @@ def _parse_json(raw: str) -> dict | None:
     for pattern in patterns:
         m = re.search(pattern, raw)
         if m:
-            try:
-                data = json.loads(m.group(1))
-                norm = normalize(data)
-                if norm:
-                    return norm
-            except Exception:
-                continue
+            res = try_loads(m.group(1))
+            if res:
+                return res
 
     return None
 
@@ -721,8 +724,16 @@ Berikut adalah transkrip bertanda waktu:
     if llm_result and isinstance(llm_result.get("clips"), list):
         for raw_c in llm_result["clips"]:
             try:
-                r_start = float(raw_c.get("start", 0))
-                r_end = float(raw_c.get("end", 0))
+                r_start = float(
+                    raw_c.get("start")
+                    if raw_c.get("start") is not None
+                    else (raw_c.get("start_sec") or raw_c.get("start_time") or raw_c.get("startTime") or 0.0)
+                )
+                r_end = float(
+                    raw_c.get("end")
+                    if raw_c.get("end") is not None
+                    else (raw_c.get("end_sec") or raw_c.get("end_time") or raw_c.get("endTime") or 0.0)
+                )
                 if r_end <= r_start:
                     continue
 
@@ -737,23 +748,29 @@ Berikut adalah transkrip bertanda waktu:
                     continue
                 s_start, s_end, matched_words = snapped
 
-                score = int(raw_c.get("score", 75))
-                breakdown = raw_c.get("breakdown") or {
+                raw_score = raw_c.get("score") if raw_c.get("score") is not None else (raw_c.get("viral_score") or raw_c.get("skor") or 75)
+                score = int(raw_score)
+                breakdown = raw_c.get("breakdown") or raw_c.get("score_breakdown") or {
                     "hook": score,
                     "emotion": score,
                     "standalone": score,
                     "punchline": score,
                     "pace": score,
                 }
+                title_val = str(raw_c.get("title") or raw_c.get("judul") or raw_c.get("hook") or f"Klip Highlight ({int(s_start)}s)").strip()
+                reason_val = str(raw_c.get("reason") or raw_c.get("alasan") or "Klip teridentifikasi memiliki potensi engagement tinggi.").strip()
+                desc_val = str(raw_c.get("description") or raw_c.get("deskripsi") or "").strip()
+                tags_val = raw_c.get("hashtags") or raw_c.get("tags") or raw_c.get("tag") or ["#fyp", "#viral", "#shorts"]
+
                 candidates.append({
                     "start_sec": round(s_start, 2),
                     "end_sec": round(s_end, 2),
                     "viral_score": max(1, min(100, score)),
                     "score_breakdown": breakdown,
-                    "title": str(raw_c.get("title", f"Klip Highlight ({int(s_start)}s)")).strip(),
-                    "reason": str(raw_c.get("reason", "Klip teridentifikasi memiliki potensi engagement tinggi.")).strip(),
-                    "description": str(raw_c.get("description", "")).strip(),
-                    "hashtags": raw_c.get("hashtags", ["#fyp", "#viral", "#shorts"]),
+                    "title": title_val,
+                    "reason": reason_val,
+                    "description": desc_val,
+                    "hashtags": tags_val,
                 })
             except Exception as e:
                 logger.warning("Gagal mem-parse kandidat klip: %s", e)

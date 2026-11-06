@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Clip, CaptionStyle, FrameSettings, AudioSettings, CaptionSegment } from '@/lib/types';
 import { buildGroups, formatTimecode, getVideoFilterCss } from '@/lib/captions';
+import { PlatformGuidesOverlay } from './PlatformGuidesOverlay';
 import {
   PanelLeftClose,
   PanelLeft,
@@ -725,6 +726,51 @@ export function CanvasViewport({
     setIsZoomResizing(false);
   };
 
+  // Drag Resize Divider for Podcast Split Mode (Tarik Garis Pembatas Pembicara 1 & 2)
+  const splitDividerDragRef = useRef<{
+    pointerId: number;
+    startY: number;
+    canvasHeight: number;
+    startRatio: number;
+  } | null>(null);
+  const [isSplitDividerDragging, setIsSplitDividerDragging] = useState(false);
+
+  const beginSplitDividerDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!canvasRef.current) return;
+    const bounds = canvasRef.current.getBoundingClientRect();
+    splitDividerDragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      canvasHeight: bounds.height || 640,
+      startRatio: frame.splitRatio ?? 50,
+    };
+    setIsSplitDividerDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const updateSplitDividerDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = splitDividerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaY = event.clientY - drag.startY;
+    const deltaYPct = (deltaY / drag.canvasHeight) * 100;
+    const nextRatio = Math.max(20, Math.min(80, Math.round(drag.startRatio + deltaYPct)));
+    if (nextRatio !== (frame.splitRatio ?? 50)) {
+      onUpdateFrame({
+        ...frame,
+        splitRatio: nextRatio,
+      });
+    }
+  };
+
+  const finishSplitDividerDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = splitDividerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    splitDividerDragRef.current = null;
+    setIsSplitDividerDragging(false);
+  };
+
   // Drag Resize Frame Divider for Social Mode (Tarik Garis Pembatas Atas / Bawah / Kiri / Kanan)
   const socialDividerDragRef = useRef<{
     pointerId: number;
@@ -1287,6 +1333,23 @@ export function CanvasViewport({
             </a>
           )}
 
+          {/* Safe Guides / Platform Overlay Button */}
+          {onToggleSafeGuides && (
+            <button
+              type="button"
+              onClick={onToggleSafeGuides}
+              className={`h-7 px-2.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors border shadow-sm ${
+                safeGuides
+                  ? 'bg-primary/20 text-primary border-primary/40 font-bold'
+                  : 'bg-surface-container text-outline hover:text-on-surface hover:bg-surface-bright border-outline-variant/20'
+              }`}
+              title="Panduan Area Aman Konten (Safe Zone - TikTok / Reels / Shorts)"
+            >
+              <Grid3X3 className="w-3.5 h-3.5" />
+              <span>Safe Zone</span>
+            </button>
+          )}
+
           {/* Kecepatan Video Active Badge */}
           {frame.speed && frame.speed !== 1.0 && (
             <span
@@ -1429,16 +1492,45 @@ export function CanvasViewport({
                   </div>
                 </div>
 
-                {/* Garis Pemisah (Divider Line) */}
-                {(frame.splitDividerWidth ?? 2) > 0 && (
+                {/* Garis Pemisah Interaktif Pembicara 1 & 2 (Drag Divider Line) */}
+                <div
+                  onPointerDown={beginSplitDividerDrag}
+                  onPointerMove={updateSplitDividerDrag}
+                  onPointerUp={finishSplitDividerDrag}
+                  onPointerCancel={finishSplitDividerDrag}
+                  className="w-full shrink-0 relative z-30 cursor-row-resize group/split-divider flex items-center justify-center select-none touch-none h-4 -my-2"
+                  title="Tarik ke atas atau ke bawah untuk mengatur perbandingan layar Podcast (20% - 80%)"
+                >
                   <div
-                    className="w-full shrink-0 relative z-20 shadow-md"
+                    className={`w-full transition-all duration-150 ${
+                      isSplitDividerDragging
+                        ? 'h-1 bg-primary shadow-[0_0_12px_rgba(76,215,246,1)]'
+                        : 'h-[2px] bg-sky-400 group-hover/split-divider:h-[3px] group-hover/split-divider:bg-primary shadow-sm'
+                    }`}
                     style={{
-                      height: `${frame.splitDividerWidth ?? 2}px`,
-                      backgroundColor: frame.splitDividerColor || '#38BDF8',
-                      boxShadow: `0 0 10px ${frame.splitDividerColor || '#38BDF8'}80`,
+                      backgroundColor: isSplitDividerDragging ? undefined : (frame.splitDividerColor || '#38BDF8'),
                     }}
                   />
+                  <div
+                    className={`absolute px-2 py-0.5 rounded-full text-[9px] font-mono font-bold transition-all duration-150 flex items-center gap-1 shadow-md pointer-events-none ${
+                      isSplitDividerDragging
+                        ? 'bg-primary text-on-primary scale-105'
+                        : 'bg-black/80 text-primary border border-primary/40 opacity-0 group-hover/split-divider:opacity-100'
+                    }`}
+                  >
+                    <GripHorizontal className="w-2.5 h-2.5" />
+                    <span>{frame.splitRatio ?? 50} : {100 - (frame.splitRatio ?? 50)}</span>
+                  </div>
+                </div>
+
+                {/* Floating Ratio Badge saat drag divider berlangsung */}
+                {isSplitDividerDragging && (
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 backdrop-blur-md text-white border border-primary/60 px-3.5 py-1.5 rounded-xl shadow-2xl flex items-center gap-2 z-50 pointer-events-none">
+                    <Users className="w-4 h-4 text-primary shrink-0" />
+                    <span className="text-xs font-mono font-bold text-primary">
+                      Atas: {frame.splitRatio ?? 50}% • Bawah: {100 - (frame.splitRatio ?? 50)}%
+                    </span>
+                  </div>
                 )}
 
                 {/* Box Bawah: Pembicara 2 */}
@@ -1642,14 +1734,17 @@ export function CanvasViewport({
                       onPointerMove={updateSocialDividerDrag}
                       onPointerUp={finishSocialDividerDrag}
                       onPointerCancel={finishSocialDividerDrag}
-                      className="w-full flex items-center px-3.5 gap-2.5 relative transition-all cursor-ns-resize select-none hover:ring-1 hover:ring-violet-400/30"
-                      title="Klik & tarik ke atas/bawah untuk memindahkan posisi vertikal Header (atau atur via slider panel)"
+                      className="w-full flex items-center px-3.5 gap-2.5 relative transition-all cursor-move select-none group/social-header hover:ring-1 hover:ring-violet-400/40 shadow-sm"
+                      title="Klik & tarik ke atas/bawah untuk memindahkan posisi vertikal Header"
                       style={{
                         height: `${headerBarHeight}px`,
                         borderRadius: sp.frameBorderRadius ? `${Math.min(16, sp.frameBorderRadius)}px` : undefined,
                         ...headerBg,
                       }}
                     >
+                      {/* Subtle Top Grab Handle Indicator */}
+                      <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full bg-violet-400/50 opacity-0 group-hover/social-header:opacity-100 transition-opacity flex items-center justify-center pointer-events-none" />
+
                       {/* Neon glow ring behind avatar */}
                       {sp.cardStyle === 'neon' && (
                         <div
@@ -1664,7 +1759,7 @@ export function CanvasViewport({
                       )}
                       {/* Avatar */}
                       <div
-                        className="relative shrink-0 rounded-full overflow-hidden flex items-center justify-center shadow-md transition-all"
+                        className="relative shrink-0 rounded-full overflow-hidden flex items-center justify-center shadow-md transition-all border border-black/10"
                         style={{
                           width: `${Math.max(22, Math.min(52, headerBarHeight - 12))}px`,
                           height: `${Math.max(22, Math.min(52, headerBarHeight - 12))}px`,
@@ -1675,28 +1770,28 @@ export function CanvasViewport({
                           <img src={sp.avatarUrl} alt="" className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: `${sp.accentColor || '#0095F6'}25`, color: sp.accentColor || '#0095F6' }}>
-                            {sp.accountName.replace('@', '').charAt(0).toUpperCase()}
+                            {(sp.accountName ? sp.accountName.replace('@', '').trim().charAt(0) : 'U').toUpperCase() || 'U'}
                           </div>
                         )}
                       </div>
 
                       {/* Name + Handle */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1">
+                      <div className="flex-1 min-w-0 flex flex-col justify-center">
+                        <div className="flex items-center gap-1.5 leading-none">
                           <span
-                            className="font-bold text-xs truncate leading-tight"
-                            style={{ color: sp.textColor, fontSize: `${Math.max(9, Math.min(15, Math.round(headerBarHeight * 0.26)))}px` }}
+                            className="font-bold truncate leading-tight tracking-tight"
+                            style={{ color: sp.textColor, fontSize: `${Math.max(10, Math.min(15, Math.round(headerBarHeight * 0.26)))}px` }}
                           >
-                            {sp.accountName}
+                            {sp.accountName || '@username'}
                           </span>
                           {sp.showVerifiedBadge && (
                             <svg
                               viewBox="0 0 24 24"
                               fill="none"
-                              className="shrink-0 select-none drop-shadow-sm"
+                              className="shrink-0 select-none inline-block drop-shadow-xs"
                               style={{
-                                width: `${Math.max(12, Math.min(18, Math.round(headerBarHeight * 0.30)))}px`,
-                                height: `${Math.max(12, Math.min(18, Math.round(headerBarHeight * 0.30)))}px`,
+                                width: `${Math.max(12, Math.min(16, Math.round(headerBarHeight * 0.28)))}px`,
+                                height: `${Math.max(12, Math.min(16, Math.round(headerBarHeight * 0.28)))}px`,
                               }}
                               aria-label="Verified"
                             >
@@ -1712,10 +1807,10 @@ export function CanvasViewport({
                           )}
                         </div>
                         <span
-                          className="text-xs truncate block leading-tight"
-                          style={{ color: sp.handleColor, fontSize: `${Math.max(7, Math.min(12, Math.round(headerBarHeight * 0.22)))}px` }}
+                          className="truncate block leading-tight mt-0.5"
+                          style={{ color: sp.handleColor, fontSize: `${Math.max(8, Math.min(12, Math.round(headerBarHeight * 0.22)))}px` }}
                         >
-                          {sp.accountHandle}
+                          {sp.accountHandle || 'Content Creator'}
                         </span>
                       </div>
                     </div>
@@ -1733,27 +1828,64 @@ export function CanvasViewport({
                       paddingRight: `${sp.framePadding || 0}px`,
                     }}
                   >
-                    <div
-                      className="w-full h-full relative overflow-hidden group/social-video cursor-grab active:cursor-grabbing transition-colors duration-150 shadow-md touch-none"
-                      style={{
-                        backgroundColor: sp.videoFrameBg || '#000000',
-                        borderRadius: sp.frameBorderRadius ? `${sp.frameBorderRadius}px` : undefined,
-                      }}
-                      onPointerDown={beginVideoDrag}
-                      onPointerMove={updateVideoDrag}
-                      onPointerUp={finishVideoDrag}
-                      onPointerCancel={finishVideoDrag}
-                    >
-                      {/* Indicator Geser Video X/Y saat di-drag di Social Mode */}
-                      {isVideoDragging && (
-                        <div className="absolute top-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-violet-600 text-white font-mono font-bold text-[10px] px-2.5 py-0.5 rounded-full shadow-lg pointer-events-none flex items-center gap-1.5 z-40 animate-in fade-in duration-100">
-                          <span>Geser X: {frame.offsetX || 0}%</span>
-                          <span>|</span>
-                          <span>Y: {frame.offsetY || 0}%</span>
-                          <span>|</span>
-                          <span>Zoom: {Math.round((frame.zoom || 1) * 100)}%</span>
+                    {/* Frame Container (overflow-visible agar divider & handle sudut TIDAK terpotong!) */}
+                    <div className="w-full h-full relative overflow-visible group/social-video select-none touch-none">
+                      {/* Video Clipped Inner Box */}
+                      <div
+                        className="w-full h-full relative overflow-hidden cursor-grab active:cursor-grabbing transition-colors duration-150 shadow-md"
+                        style={{
+                          backgroundColor: sp.videoFrameBg || '#000000',
+                          borderRadius: sp.frameBorderRadius ? `${sp.frameBorderRadius}px` : undefined,
+                        }}
+                        onPointerDown={beginVideoDrag}
+                        onPointerMove={updateVideoDrag}
+                        onPointerUp={finishVideoDrag}
+                        onPointerCancel={finishVideoDrag}
+                      >
+                        {/* Indicator Geser Video X/Y saat di-drag di Social Mode */}
+                        {isVideoDragging && (
+                          <div className="absolute top-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-violet-600 text-white font-mono font-bold text-[10px] px-2.5 py-0.5 rounded-full shadow-lg pointer-events-none flex items-center gap-1.5 z-40 animate-in fade-in duration-100">
+                            <span>Geser X: {frame.offsetX || 0}%</span>
+                            <span>|</span>
+                            <span>Y: {frame.offsetY || 0}%</span>
+                            <span>|</span>
+                            <span>Zoom: {Math.round((frame.zoom || 1) * 100)}%</span>
+                          </div>
+                        )}
+
+                        {/* Blurred background video duplicate for when zoom < 1.35 (Fit Mode Utuh ala Podcast) */}
+                        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none select-none opacity-40">
+                          <video
+                            src={videoSrc}
+                            className="w-full h-full object-cover scale-125 filter blur-xl brightness-50"
+                            muted
+                            playsInline
+                          />
                         </div>
-                      )}
+
+                        {/* Main Video (object-contain: frame video 100% utuh tidak pernah terpotong permanen) */}
+                        <video
+                          ref={videoRef}
+                          src={videoSrc}
+                          onLoadedMetadata={(e) => {
+                            const v = e.currentTarget;
+                            if (v.videoWidth && v.videoHeight) {
+                              setVideoAspect(v.videoWidth / v.videoHeight);
+                            }
+                          }}
+                          className="relative z-10 w-full h-full object-contain select-none pointer-events-none drop-shadow-2xl"
+                          style={{
+                            filter: getVideoFilterCss(frame),
+                            transform: `translate(${frame.offsetX || 0}%, ${frame.offsetY || 0}%) scale(${frame.zoom || 1})`,
+                            transformOrigin: 'center center',
+                            transition: isVideoDragging || isZoomResizing
+                              ? 'none'
+                              : 'transform 0.15s cubic-bezier(0.2, 0, 0, 1)',
+                          }}
+                          playsInline
+                        />
+                      </div>
+
                       {/* Left Divider Handle (Tarik Garis Kiri untuk Melebarkan / Menyempitkan Bingkai) */}
                       <div
                         onPointerDown={(e) => beginSocialDividerDrag(e, 'left')}
@@ -1810,38 +1942,6 @@ export function CanvasViewport({
                         </div>
                       </div>
 
-                      {/* Blurred background video duplicate for when zoom < 1.35 (Fit Mode Utuh ala Podcast) */}
-                      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none select-none opacity-40">
-                        <video
-                          src={videoSrc}
-                          className="w-full h-full object-cover scale-125 filter blur-xl brightness-50"
-                          muted
-                          playsInline
-                        />
-                      </div>
-
-                      {/* Main Video (object-contain: frame video 100% utuh tidak pernah terpotong permanen) */}
-                      <video
-                        ref={videoRef}
-                        src={videoSrc}
-                        onLoadedMetadata={(e) => {
-                          const v = e.currentTarget;
-                          if (v.videoWidth && v.videoHeight) {
-                            setVideoAspect(v.videoWidth / v.videoHeight);
-                          }
-                        }}
-                        className="relative z-10 w-full h-full object-contain select-none pointer-events-none drop-shadow-2xl"
-                        style={{
-                          filter: getVideoFilterCss(frame),
-                          transform: `translate(${frame.offsetX || 0}%, ${frame.offsetY || 0}%) scale(${frame.zoom || 1})`,
-                          transformOrigin: 'center center',
-                          transition: isVideoDragging || isZoomResizing
-                            ? 'none'
-                            : 'transform 0.15s cubic-bezier(0.2, 0, 0, 1)',
-                        }}
-                        playsInline
-                      />
-
                       {/* Social Mode Interactive Bounding Box & 4 Corner Resize Handles */}
                       <div
                         className={`absolute inset-0 pointer-events-none select-none transition-opacity duration-150 ${
@@ -1862,7 +1962,7 @@ export function CanvasViewport({
                             onPointerMove={updateZoomResize}
                             onPointerUp={finishZoomResize}
                             onPointerCancel={finishZoomResize}
-                            className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nwse-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-30"
+                            className="absolute -top-2 -left-2 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nwse-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-40"
                             title="Tarik sudut untuk zoom (perbesar/perkecil video)"
                           />
                           {/* Top-Right Corner Handle */}
@@ -1872,7 +1972,7 @@ export function CanvasViewport({
                             onPointerMove={updateZoomResize}
                             onPointerUp={finishZoomResize}
                             onPointerCancel={finishZoomResize}
-                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nesw-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-30"
+                            className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nesw-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-40"
                             title="Tarik sudut untuk zoom (perbesar/perkecil video)"
                           />
                           {/* Bottom-Left Corner Handle */}
@@ -1882,7 +1982,7 @@ export function CanvasViewport({
                             onPointerMove={updateZoomResize}
                             onPointerUp={finishZoomResize}
                             onPointerCancel={finishZoomResize}
-                            className="absolute -bottom-1.5 -left-1.5 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nesw-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-30"
+                            className="absolute -bottom-2 -left-2 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nesw-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-40"
                             title="Tarik sudut untuk zoom (perbesar/perkecil video)"
                           />
                           {/* Bottom-Right Corner Handle */}
@@ -1892,7 +1992,7 @@ export function CanvasViewport({
                             onPointerMove={updateZoomResize}
                             onPointerUp={finishZoomResize}
                             onPointerCancel={finishZoomResize}
-                            className="absolute -bottom-1.5 -right-1.5 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nwse-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-30"
+                            className="absolute -bottom-2 -right-2 w-4 h-4 rounded-full bg-violet-500 border-2 border-white shadow-md cursor-nwse-resize pointer-events-auto hover:scale-125 active:scale-110 transition-transform z-40"
                             title="Tarik sudut untuk zoom (perbesar/perkecil video)"
                           />
 

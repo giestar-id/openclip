@@ -101,30 +101,60 @@ def probe(path: str | Path) -> dict:
         creationflags=CREATE_NO_WINDOW,
     )
     text = proc.stderr.decode("utf-8", "replace")
-    info: dict = {"duration": None, "width": None, "height": None, "has_audio": "Audio:" in text}
+    info: dict = {"duration": None, "width": None, "height": None, "has_audio": "Audio:" in text, "rotate": 0}
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
     if m:
         h, mi, s = m.groups()
         info["duration"] = int(h) * 3600 + int(mi) * 60 + float(s)
+
+    # Deteksi rotasi dari metadata 'rotate: X' atau 'displaymatrix: rotation of X degrees'
+    rot_m = re.search(r"(?:rotate\s*:\s*|rotation of\s*)(-?\d+(?:\.\d+)?)", text)
+    if rot_m:
+        try:
+            rot_deg = int(round(float(rot_m.group(1)))) % 360
+            info["rotate"] = rot_deg
+        except (ValueError, TypeError):
+            pass
+
     for line in text.splitlines():
         if "Video:" in line:
             vm = re.search(r",\s*(\d{2,5})x(\d{2,5})", line)
             if vm:
-                info["width"], info["height"] = int(vm.group(1)), int(vm.group(2))
-                rot = re.search(r"rotate\s*:\s*(-?\d+)", text)
-                if rot and abs(int(rot.group(1))) in (90, 270):
-                    info["width"], info["height"] = info["height"], info["width"]
+                w_val, h_val = int(vm.group(1)), int(vm.group(2))
+                if info["rotate"] in (90, 270):
+                    w_val, h_val = h_val, w_val
+                info["width"], info["height"] = w_val, h_val
                 break
     return info
 
 
 def extract_audio_wav(src: Path, dst: Path, duration: float | None, on_progress=None) -> None:
-    """Audio mono 16 kHz PCM - dipakai faster-whisper & perhitungan peaks."""
-    run_ffmpeg(
-        ["-i", str(src), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(dst)],
-        duration=duration,
-        on_progress=on_progress,
-    )
+    """Audio mono 16 kHz PCM - dipakai faster-whisper & perhitungan peaks.
+    Jika video tidak memiliki stream audio, buat audio hening agar pipeline tetap berjalan normal.
+    """
+    try:
+        run_ffmpeg(
+            ["-i", str(src), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(dst)],
+            duration=duration,
+            on_progress=on_progress,
+        )
+    except FFmpegError as e:
+        err_msg = str(e).lower()
+        if (
+            "output file does not contain any stream" in err_msg
+            or "does not contain any stream" in err_msg
+            or "stream map" in err_msg
+            or "invalid argument" in err_msg
+        ):
+            # Fallback jika video hening/tanpa stream audio
+            dur_val = max(1.0, float(duration or 10.0))
+            run_ffmpeg(
+                ["-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", f"{dur_val:.3f}", "-c:a", "pcm_s16le", str(dst)],
+                duration=dur_val,
+                on_progress=on_progress,
+            )
+        else:
+            raise
 
 
 def encode_audio_mp3(src: Path, dst: Path, start: float = 0, length: float | None = None) -> None:
@@ -206,6 +236,7 @@ def cut_preview(src: Path, dst: Path, start: float, end: float, height: int | No
     """
     h = height or config.PREVIEW_HEIGHT or 720
     target_h = min(h, 720)
+    target_h = target_h if target_h % 2 == 0 else target_h - 1
     dur = max(0.1, end - start)
     encoder_args = get_preview_encoder_args()
 
@@ -214,7 +245,7 @@ def cut_preview(src: Path, dst: Path, start: float, end: float, height: int | No
             "-ss", f"{start:.3f}",
             "-i", str(src),
             "-t", f"{dur:.3f}",
-            "-vf", f"scale=-2:'min({target_h},ih)'",
+            "-vf", f"scale=-2:'min({target_h},trunc(ih/2)*2)'",
             *encoder_args,
             "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "128k", "-ac", "2",

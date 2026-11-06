@@ -295,20 +295,28 @@ def process_project(project_id: int) -> None:
             on_progress=on_an_progress,
         )
 
-        # Jika video tidak ada ucapan atau kata terlalu sedikit, buat klip fallback
+        # Jika video tidak ada ucapan atau kata terlalu sedikit, buat klip fallback proporsional
         if not candidates:
-            logger.warning("Project #%d: Transkrip tidak menghasilkan kandidat. Membuat klip fallback.", project_id)
+            logger.warning("Project #%d: Transkrip tidak menghasilkan kandidat. Membuat klip fallback proporsional.", project_id)
             c_dur = min(total_duration, float(clip_dur))
-            candidates = [{
-                "start_sec": 0.0,
-                "end_sec": c_dur,
-                "viral_score": 75,
-                "score_breakdown": {"hook": 75, "emotion": 70, "standalone": 80, "punchline": 70, "pace": 75},
-                "title": f"Highlight Utama ({video_title[:30]})",
-                "reason": "Bagian pembuka video berdurasi optimal.",
-                "description": "Klip sorotan dari video sumber.",
-                "hashtags": ["#fyp", "#viral", "#video"],
-            }]
+            num_fallback = clip_cnt if clip_cnt > 0 else max(1, min(4, int(total_duration // max(10.0, c_dur))))
+            candidates = []
+            step = (total_duration - c_dur) / max(1, num_fallback - 1) if num_fallback > 1 else 0.0
+
+            for k in range(num_fallback):
+                s_t = round(k * step, 2)
+                e_t = round(min(total_duration, s_t + c_dur), 2)
+                title_label = f"Highlight #{k + 1} ({video_title[:25]})" if num_fallback > 1 else f"Highlight Utama ({video_title[:30]})"
+                candidates.append({
+                    "start_sec": s_t,
+                    "end_sec": e_t,
+                    "viral_score": 75,
+                    "score_breakdown": {"hook": 75, "emotion": 70, "standalone": 80, "punchline": 70, "pace": 75},
+                    "title": title_label,
+                    "reason": f"Segmen highlight video berdurasi optimal ({int(e_t - s_t)}s).",
+                    "description": "Klip sorotan dari video sumber.",
+                    "hashtags": ["#fyp", "#viral", "#video"],
+                })
 
         logger.info("Project #%d: Terpilih %d kandidat klip terbaik.", project_id, len(candidates))
 

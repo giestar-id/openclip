@@ -24,24 +24,48 @@ if "!NEED_INSTALL!"=="1" (
     if exist "%BASE_DIR%install.bat" (
         call "%BASE_DIR%install.bat"
     )
+    if not exist "%WEB_DIR%\node_modules" (
+        echo [ERROR] Folder node_modules belum terbentuk setelah instalasi.
+        pause
+        exit /b 1
+    )
+    if not exist "%WORKER_DIR%\.venv" (
+        echo [ERROR] Virtual environment worker ^(.venv^) belum terbentuk setelah instalasi.
+        pause
+        exit /b 1
+    )
 )
 
-:: 3. Verifikasi ketersediaan Node.js & Python
+:: 3. Verifikasi ketersediaan Node.js
 where node >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] Node.js belum terpasang. Silakan jalankan install.bat terlebih dahulu!
+    echo [ERROR] Node.js belum terpasang atau tidak ada di PATH.
+    echo Silakan jalankan install.bat terlebih dahulu!
     pause
     exit /b 1
 )
 
-echo [1/2] Menyalakan Web Server Next.js (Port 3000)...
+:: 4. Deteksi perintah eksekusi worker
+set "WORKER_CMD="
+where uv >nul 2>nul
+if %errorlevel% equ 0 (
+    set "WORKER_CMD=uv run python main.py --mode all"
+) else (
+    if exist "%WORKER_DIR%\.venv\Scripts\python.exe" (
+        set "WORKER_CMD=.venv\Scripts\python.exe main.py --mode all"
+    ) else (
+        set "WORKER_CMD=python main.py --mode all"
+    )
+)
+
+echo [1/2] Menyalakan Web Server Next.js ^(Port 3000^)...
 start "OpenClip Web Server (Port 3000)" cmd /k "title OpenClip Web Server (Port 3000) && cd /d ""%WEB_DIR%"" && npm run dev"
 
-echo [2/2] Menyalakan OpenClip AI Worker (Project dan Export)...
-start "OpenClip AI Worker (Dual Engine)" cmd /k "title OpenClip AI Worker (Dual Engine) && cd /d ""%WORKER_DIR%"" && (where uv >nul 2>nul && uv run python main.py --mode all || .venv\Scripts\python main.py --mode all)"
+echo [2/2] Menyalakan OpenClip AI Worker ^(Project dan Export^)...
+start "OpenClip AI Worker (Dual Engine)" cmd /k "title OpenClip AI Worker (Dual Engine) && cd /d ""%WORKER_DIR%"" && !WORKER_CMD!"
 
 echo.
-echo Menunggu server siap (3 detik) dan membuka browser...
+echo Menunggu server siap ^(3 detik^) dan membuka browser...
 timeout /t 3 /nobreak >nul
 start http://localhost:3000
 
@@ -50,13 +74,13 @@ echo ============================================================
 echo   Kedua Server Sudah Berjalan Paralel di Jendela Terpisah!
 echo   Aplikasi otomatis terbuka di: http://localhost:3000
 echo.
-echo   - Jendela 1: OpenClip Web Server (Next.js)
-echo   - Jendela 2: OpenClip AI Worker Daemon (Transkrip, Crop dan Export)
+echo   - Jendela 1: OpenClip Web Server ^(Next.js^)
+echo   - Jendela 2: OpenClip AI Worker Daemon ^(Transkrip, Crop dan Export^)
 echo.
 echo   Catatan: Jika port 3000 sedang dipakai aplikasi lain,
 echo   Next.js akan otomatis beralih ke http://localhost:3001.
 echo.
-echo   (Untuk mematikan sistem, cukup tutup kedua jendela CMD tersebut)
+echo   ^(Untuk mematikan sistem, cukup tutup kedua jendela CMD tersebut^)
 echo ============================================================
 echo.
 timeout /t 5 >nul

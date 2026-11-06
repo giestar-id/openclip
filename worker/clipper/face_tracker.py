@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 
+from . import media
+
 logger = logging.getLogger(__name__)
 
 _SESSION = None
@@ -343,6 +345,27 @@ def _cluster_face_positions(
     return results
 
 
+def _decimate_keyframes(kfs: list[dict[str, Any]], max_kfs: int = 45) -> list[dict[str, Any]]:
+    """Sederhanakan keyframe kamera agar tetap presisi tanpa melampaui batas stack parser ekspresi FFmpeg."""
+    if len(kfs) <= max_kfs:
+        return kfs
+
+    selected_indices = {0, len(kfs) - 1}
+    scores = []
+    for i in range(1, len(kfs) - 1):
+        delta_prev = abs(kfs[i]["offsetX"] - kfs[i - 1]["offsetX"])
+        delta_next = abs(kfs[i + 1]["offsetX"] - kfs[i]["offsetX"])
+        score = delta_prev + delta_next
+        scores.append((score, i))
+
+    scores.sort(key=lambda x: x[0], reverse=True)
+    for _, idx in scores[: max_kfs - 2]:
+        selected_indices.add(idx)
+
+    sorted_indices = sorted(selected_indices)
+    return [kfs[i] for i in sorted_indices]
+
+
 def analyze_clip_faces(
     video_path: Path | str,
     start_sec: float,
@@ -390,23 +413,47 @@ def analyze_clip_faces(
             "suggested_zoom": 1.0,
         }
 
+    # Deteksi rotasi display dari video sumber (metadata rotate / displaymatrix smartphone)
+    rot_deg = 0
+    try:
+        pr = media.probe(video_p)
+        rot_deg = int(pr.get("rotate") or 0) % 360
+    except Exception:
+        pass
+
     try:
         container = av.open(str(video_p))
         stream = container.streams.video[0]
         v_width = stream.width
         v_height = stream.height
         time_base = float(stream.time_base)
+        fps = float(stream.average_rate or 30.0)
+
+        # Jika rotasi video 90 atau 270 derajat, tukar lebar & tinggi agar sesuai tampilan layar
+        if rot_deg in (90, 270):
+            v_width, v_height = v_height, v_width
 
         all_face_samples: list[dict[str, Any]] = []
         frames_timeline: dict[float, list[dict[str, Any]]] = {}
         last_sample_t = start_sec - sample_interval
 
         # Seek ke dekat start_sec untuk efisiensi
-        target_pts = int(max(0.0, start_sec - 1.0) / time_base)
-        container.seek(target_pts, stream=stream)
+        try:
+            target_pts = int(max(0.0, start_sec - 1.0) / time_base)
+            container.seek(target_pts, stream=stream)
+        except Exception:
+            pass
 
+        frame_idx = 0
         for frame in container.decode(stream):
-            pts_sec = float(frame.pts * time_base) if frame.pts else 0.0
+            frame_idx += 1
+            if frame.time is not None:
+                pts_sec = float(frame.time)
+            elif frame.pts is not None:
+                pts_sec = float(frame.pts * time_base)
+            else:
+                pts_sec = float(frame_idx / fps)
+
             if pts_sec < start_sec:
                 continue
             if pts_sec > end_sec:
@@ -415,6 +462,13 @@ def analyze_clip_faces(
             if pts_sec - last_sample_t >= sample_interval:
                 last_sample_t = pts_sec
                 arr = frame.to_ndarray(format="rgb24")
+                if rot_deg == 90:
+                    arr = np.ascontiguousarray(np.rot90(arr, 3))
+                elif rot_deg == 180:
+                    arr = np.ascontiguousarray(np.rot90(arr, 2))
+                elif rot_deg == 270:
+                    arr = np.ascontiguousarray(np.rot90(arr, 1))
+
                 faces = detect_faces(arr, conf_thresh=0.55)
                 if faces:
                     # Simpan mouth patch untuk analisis pergerakan bicara
@@ -690,6 +744,10 @@ def analyze_clip_faces(
                 "offsetX": tracking_keyframes[-1]["offsetX"],
                 "offsetY": tracking_keyframes[-1]["offsetY"],
             })
+
+        # Sederhanakan keyframe agar tidak membebani filtergraph FFmpeg & aman dari batas stack
+        if tracking_keyframes:
+            tracking_keyframes = _decimate_keyframes(tracking_keyframes, max_kfs=45)
 
         # Cek pergerakan kamera (apakah presenter berjalan?)
         x_vals = [kf["offsetX"] for kf in tracking_keyframes] if tracking_keyframes else [offset_x_pct]

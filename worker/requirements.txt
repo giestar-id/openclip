@@ -1,0 +1,10 @@
+# OpenClip AI Worker Dependencies
+python-dotenv>=1.0.0
+yt-dlp>=2024.8.0
+imageio-ffmpeg>=0.5.1
+numpy>=1.24.0
+requests>=2.31.0
+faster-whisper>=1.0.0
+fonttools>=4.40.0
+pillow>=10.0.0
+onnxruntime>=1.16.0

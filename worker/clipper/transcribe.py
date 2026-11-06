@@ -286,11 +286,16 @@ def _transcribe_gemini(
                 parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
                 raw_text = parts[0].get("text", "") if parts else "{}"
                 clean_json = re.sub(r"^```json\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
-                parsed = json.loads(clean_json)
+                clean_json = re.sub(r",\s*([\]}])", r"\1", clean_json)
+                parsed = json.loads(clean_json, strict=False)
             except Exception as e:
                 match = re.search(r"\{[\s\S]*\}", raw_text)
                 if match:
-                    parsed = json.loads(match.group(0))
+                    json_str = re.sub(r",\s*([\]}])", r"\1", match.group(0))
+                    try:
+                        parsed = json.loads(json_str, strict=False)
+                    except Exception as inner_e:
+                        raise TranscribeError(f"Gagal membaca format JSON transkrip Gemini: {inner_e}")
                 else:
                     raise TranscribeError(f"Gagal membaca format JSON transkrip Gemini: {e}")
 
@@ -328,9 +333,17 @@ def _transcribe_gemini(
 def _lang_code(lang: str | None) -> str | None:
     if not lang:
         return None
-    lang = lang.lower()
-    mapping = {"indonesian": "id", "english": "en"}
-    return mapping.get(lang, lang[:5])
+    lang = lang.lower().strip()
+    mapping = {
+        "indonesian": "id",
+        "id-id": "id",
+        "english": "en",
+        "en-us": "en",
+        "en-gb": "en",
+        "malay": "ms",
+        "ms-my": "ms",
+    }
+    return mapping.get(lang, lang[:2] if len(lang) >= 2 else lang)
 
 
 # --------------------------------------------------------------- local mode
@@ -371,7 +384,8 @@ def _load_model(model: str, device: str, compute_type: str, on_progress: Progres
 
     cpu_threads = max(1, os.cpu_count() or 4)
 
-    if not local_model_cached(model):
+    is_cached = local_model_cached(model)
+    if not is_cached:
         on_progress(0.0, f"Mengunduh model faster-whisper '{model}' ke Drive D (sekali saja)...")
     else:
         on_progress(0.0, f"Memuat model faster-whisper '{model}' ({actual_device}, {actual_compute})...")
@@ -382,17 +396,33 @@ def _load_model(model: str, device: str, compute_type: str, on_progress: Progres
             kwargs["cpu_threads"] = cpu_threads
         m = WhisperModel(model, device=actual_device, compute_type=actual_compute, **kwargs)
     except Exception as e:
+        err_str = str(e).lower()
+        is_conn_error = any(w in err_str for w in ("connect", "network", "timeout", "huggingface", "offline", "resolve", "http"))
+
+        if not is_cached and is_conn_error:
+            raise TranscribeError(
+                f"Gagal mengunduh model Whisper '{model}' dari HuggingFace (koneksi terputus/offline). "
+                "Periksa koneksi internet Anda atau gunakan mode API (Groq/Gemini).",
+                retry_local=False,
+            ) from e
+
         if actual_device != "cpu":
             on_progress(0.0, f"GPU tidak tersedia ({e.__class__.__name__}), beralih otomatis ke CPU int8 ({cpu_threads} threads)...")
-            m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=cpu_threads, download_root=str(config.MODELS_DIR))
-            actual_device = "cpu"
-            actual_compute = "int8"
-            key = (model, actual_device, actual_compute)
+            try:
+                m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=cpu_threads, download_root=str(config.MODELS_DIR))
+                actual_device = "cpu"
+                actual_compute = "int8"
+                key = (model, actual_device, actual_compute)
+            except Exception as cpu_e:
+                raise TranscribeError(f"Gagal memuat model Whisper lokal di CPU: {cpu_e}") from cpu_e
         else:
             if actual_compute != "int8":
-                m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=cpu_threads, download_root=str(config.MODELS_DIR))
+                try:
+                    m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=cpu_threads, download_root=str(config.MODELS_DIR))
+                except Exception as cpu_e:
+                    raise TranscribeError(f"Gagal memuat model Whisper lokal: {cpu_e}") from cpu_e
             else:
-                raise
+                raise TranscribeError(f"Gagal memuat model Whisper lokal: {e}") from e
 
     _MODEL_CACHE.clear()
     _MODEL_CACHE[key] = m
@@ -404,22 +434,56 @@ def _transcribe_local(wav: Path, model: str, device: str, compute_type: str, lan
         wm = _load_model(model, device, compute_type, on_progress)
     except ImportError as e:
         raise TranscribeError("faster-whisper belum terpasang. Jalankan: pip install faster-whisper") from e
-    segments, info = wm.transcribe(
-        str(wav),
-        language=lang,
-        word_timestamps=True,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500),
-        beam_size=5 if device != "cpu" else 1,
-        condition_on_previous_text=False,
-    )
+    except TranscribeError:
+        raise
+    except Exception as e:
+        raise TranscribeError(f"Gagal menginisialisasi faster-whisper: {e}") from e
+
     words: list[dict] = []
-    last = 0.0
-    for seg in segments:
-        for w in seg.words or []:
-            words.append({"word": w.word.strip(), "start": float(w.start), "end": float(w.end)})
-        if duration and seg.end - last >= 2:
-            last = seg.end
-            on_progress(min(0.99, seg.end / duration), f"Transkrip lokal {seg.end / 60:.1f}/{duration / 60:.1f} menit")
+    detected_lang = None
+
+    try:
+        segments, info = wm.transcribe(
+            str(wav),
+            language=lang,
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+            beam_size=5 if device != "cpu" else 1,
+            condition_on_previous_text=False,
+        )
+        detected_lang = getattr(info, "language", None)
+        last = 0.0
+        for seg in segments:
+            for w in seg.words or []:
+                words.append({"word": w.word.strip(), "start": float(w.start), "end": float(w.end)})
+            if duration and seg.end - last >= 2:
+                last = seg.end
+                on_progress(min(0.99, seg.end / duration), f"Transkrip lokal {seg.end / 60:.1f}/{duration / 60:.1f} menit")
+    except Exception as e:
+        err_str = str(e).lower()
+        if device != "cpu" and any(k in err_str for k in ("cuda", "out of memory", "cudnn")):
+            on_progress(0.0, "GPU memory habis saat inferensi, beralih otomatis ke CPU...")
+            wm_cpu = _load_model(model, "cpu", "int8", on_progress)
+            segments, info = wm_cpu.transcribe(
+                str(wav),
+                language=lang,
+                word_timestamps=True,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500),
+                beam_size=1,
+                condition_on_previous_text=False,
+            )
+            detected_lang = getattr(info, "language", None)
+            words = []
+            for seg in segments:
+                for w in seg.words or []:
+                    words.append({"word": w.word.strip(), "start": float(w.start), "end": float(w.end)})
+        elif any(k in err_str for k in ("no speech", "empty", "silence", "audio too short")):
+            # Tangani video hening atau tanpa suara secara anggun
+            words = []
+        else:
+            raise TranscribeError(f"Transkrip lokal gagal: {e}") from e
+
     on_progress(1.0, "Transkrip selesai")
-    return words, getattr(info, "language", None)
+    return words, detected_lang

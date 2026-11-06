@@ -152,7 +152,18 @@ def _clean(w: str) -> str:
 
 def build_segments(words: list[dict], start: float, end: float, highlight: bool = True) -> list[dict]:
     """Bagi kata dalam rentang [start, end] menjadi baris caption (segmen)."""
-    sel = [w for w in words if w["end"] > start + 0.05 and w["start"] < end - 0.05]
+    norm_words: list[dict] = []
+    for w in words or []:
+        w_text = str(w.get("word") if "word" in w else w.get("w", "")).strip()
+        if not w_text:
+            continue
+        w_s = float(w.get("start") if "start" in w else w.get("s", 0.0))
+        w_e = float(w.get("end") if "end" in w else w.get("e", w_s + 0.25))
+        if w_e <= w_s:
+            w_e = w_s + 0.25
+        norm_words.append({"word": w_text, "start": w_s, "end": w_e})
+
+    sel = [w for w in norm_words if w["end"] > start and w["start"] < end]
     segments: list[dict] = []
     cur: list[dict] = []
 
@@ -164,11 +175,13 @@ def build_segments(words: list[dict], start: float, end: float, highlight: bool 
             cands = [x for x in seg_words if (len(_clean(x["w"])) >= 6 and _clean(x["w"]) not in _STOPWORDS) or _clean(x["w"]).isdigit()]
             if cands:
                 max(cands, key=lambda x: (_clean(x["w"]).isdigit(), len(_clean(x["w"]))))["hl"] = True
+        s_val = seg_words[0]["s"]
+        e_val = max(s_val + 0.05, seg_words[-1]["e"])
         segments.append(
             {
                 "id": f"s{len(segments) + 1}",
-                "start": seg_words[0]["s"],
-                "end": seg_words[-1]["e"],
+                "start": s_val,
+                "end": e_val,
                 "text": " ".join(x["w"] for x in seg_words),
                 "words": seg_words,
             }
