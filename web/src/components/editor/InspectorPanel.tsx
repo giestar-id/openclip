@@ -634,14 +634,14 @@ export function InspectorPanel({
       </div>
 
       {/* Inspector Tabs */}
-      <div className="flex items-center bg-surface-container-high/50 px-2 pt-1.5 gap-1 border-b border-surface-container-highest/40 overflow-x-auto shrink-0 scrollbar-none">
+      <div className="flex items-center bg-surface-container-high/60 px-2 pt-1 gap-1 border-b border-surface-container-highest/40 overflow-x-auto shrink-0 scrollbar-none">
         <button
           id="inspector-caption-tab"
           onClick={() => setActiveTab('caption')}
-          className={`px-2.5 py-1.5 rounded-t font-label-md text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-t-md font-label-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 cursor-pointer ${
             activeTab === 'caption'
-              ? 'bg-surface-container-low text-primary'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'bg-surface-container-low text-primary border-primary font-bold shadow-xs'
+              : 'text-on-surface-variant hover:text-on-surface border-transparent hover:bg-surface-container'
           }`}
         >
           <FileText className="w-3.5 h-3.5" />
@@ -650,10 +650,10 @@ export function InspectorPanel({
         <button
           id="inspector-style-tab"
           onClick={() => setActiveTab('style')}
-          className={`px-2.5 py-1.5 rounded-t font-label-md text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-t-md font-label-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 cursor-pointer ${
             activeTab === 'style'
-              ? 'bg-surface-container-low text-primary'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'bg-surface-container-low text-primary border-primary font-bold shadow-xs'
+              : 'text-on-surface-variant hover:text-on-surface border-transparent hover:bg-surface-container'
           }`}
         >
           <Palette className="w-3.5 h-3.5" />
@@ -662,13 +662,13 @@ export function InspectorPanel({
         <button
           id="inspector-text-tab"
           onClick={() => setActiveTab('text')}
-          className={`px-2.5 py-1.5 rounded-t font-label-md text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-t-md font-label-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 cursor-pointer ${
             activeTab === 'text'
-              ? 'bg-surface-container-low text-primary'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'bg-surface-container-low text-primary border-primary font-bold shadow-xs'
+              : 'text-on-surface-variant hover:text-on-surface border-transparent hover:bg-surface-container'
           }`}
         >
-          <Type className="w-3.5 h-3.5 text-primary" />
+          <Type className="w-3.5 h-3.5" />
           Teks
           {(frame.hookTitle?.enabled || frame.watermark?.enabled) && (
             <span className="w-1.5 h-1.5 rounded-full bg-primary" />
@@ -677,10 +677,10 @@ export function InspectorPanel({
         <button
           id="inspector-frame-tab"
           onClick={() => setActiveTab('frame')}
-          className={`px-2.5 py-1.5 rounded-t font-label-md text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-t-md font-label-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 cursor-pointer ${
             activeTab === 'frame'
-              ? 'bg-surface-container-low text-primary'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'bg-surface-container-low text-primary border-primary font-bold shadow-xs'
+              : 'text-on-surface-variant hover:text-on-surface border-transparent hover:bg-surface-container'
           }`}
         >
           <Crop className="w-3.5 h-3.5" />
@@ -689,13 +689,13 @@ export function InspectorPanel({
         <button
           id="inspector-filter-tab"
           onClick={() => setActiveTab('filter')}
-          className={`px-2.5 py-1.5 rounded-t font-label-md text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-t-md font-label-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 cursor-pointer ${
             activeTab === 'filter'
-              ? 'bg-surface-container-low text-primary'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'bg-surface-container-low text-primary border-primary font-bold shadow-xs'
+              : 'text-on-surface-variant hover:text-on-surface border-transparent hover:bg-surface-container'
           }`}
         >
-          <Wand2 className="w-3.5 h-3.5 text-primary" />
+          <Wand2 className="w-3.5 h-3.5" />
           Filter & Efek
           {((frame.filterPreset && frame.filterPreset !== 'none') || (frame.videoBlur ?? 0) > 0 || frame.vignette) && (
             <span className="w-1.5 h-1.5 rounded-full bg-primary" />
@@ -704,10 +704,10 @@ export function InspectorPanel({
         <button
           id="inspector-audio-tab"
           onClick={() => setActiveTab('audio')}
-          className={`px-2.5 py-1.5 rounded-t font-label-md text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-t-md font-label-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 cursor-pointer ${
             activeTab === 'audio'
-              ? 'bg-surface-container-low text-primary'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'bg-surface-container-low text-primary border-primary font-bold shadow-xs'
+              : 'text-on-surface-variant hover:text-on-surface border-transparent hover:bg-surface-container'
           }`}
         >
           <Volume2 className="w-3.5 h-3.5" />
@@ -716,10 +716,10 @@ export function InspectorPanel({
         <button
           id="inspector-info-tab"
           onClick={() => setActiveTab('info')}
-          className={`px-2.5 py-1.5 rounded-t font-label-md text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-t-md font-label-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 cursor-pointer ${
             activeTab === 'info'
-              ? 'bg-surface-container-low text-primary'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'bg-surface-container-low text-primary border-primary font-bold shadow-xs'
+              : 'text-on-surface-variant hover:text-on-surface border-transparent hover:bg-surface-container'
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
@@ -864,9 +864,15 @@ export function InspectorPanel({
                   className="bg-surface-container p-2.5 rounded-lg border border-outline-variant/20 flex flex-col gap-1.5 hover:border-primary/40 transition-colors"
                 >
                   <div className="flex items-center justify-between text-outline text-[11px] font-mono">
-                    <span className="text-secondary font-semibold">
-                      {seg.start.toFixed(1)}s - {seg.end.toFixed(1)}s
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onSeek(seg.start)}
+                      className="text-secondary font-semibold hover:text-primary hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Klik untuk melompat ke kalimat ini pada video"
+                    >
+                      <Play className="w-2.5 h-2.5 fill-current" />
+                      <span>{seg.start.toFixed(1)}s - {seg.end.toFixed(1)}s</span>
+                    </button>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleSplitSegment(seg.id)}
