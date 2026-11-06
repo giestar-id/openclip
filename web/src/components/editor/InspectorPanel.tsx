@@ -2415,7 +2415,8 @@ export function InspectorPanel({
                           bgColor: '#FFFFFF',
                           textColor: '#000000',
                           handleColor: '#4B5563',
-                          accentColor: '#000000',
+                          accentColor: '#0095F6',
+                          verifiedBadgeColor: '#0095F6',
                           headerHeight: 18,
                           footerHeight: 8,
                           headerPosY: 6,
@@ -2796,18 +2797,25 @@ export function InspectorPanel({
                   avatarUrl: '',
                   bgColor: '#FFFFFF',
                   textColor: '#000000',
-                  handleColor: '#4B5563',
-                  accentColor: '#000000',
+                  handleColor: '#6B7280',
+                  accentColor: '#0095F6',
+                  verifiedBadgeColor: '#0095F6',
                   headerHeight: 18,
                   footerHeight: 8,
                   headerPosY: 6,
                   footerPosY: 91,
+                  headerBarHeight: 48,
+                  footerBarHeight: 34,
+                  headerPaddingX: 0,
                   videoFrameHeight: 66,
                   videoFrameOffsetY: 0,
                   footerText: 'Follow for more! 🔥',
                   showVerifiedBadge: true,
                   showFollowButton: false,
                   cardStyle: 'flat' as const,
+                  videoFrameBg: '#000000',
+                  framePadding: 0,
+                  frameBorderRadius: 0,
                 };
                 const updateSP = (patch: Record<string, unknown>) =>
                   onUpdateFrame({ ...frame, socialProfile: { ...sp, ...patch } });
@@ -2818,20 +2826,67 @@ export function InspectorPanel({
                         <AtSign className="w-4 h-4 text-violet-400" />
                         <span>Social Profile Template</span>
                       </div>
-                      <span className="text-[10px] bg-violet-500/15 text-violet-400 px-1.5 py-0.5 rounded font-mono font-semibold">
-                        9:16 Social
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateFrame({
+                              ...frame,
+                              zoom: 1.0,
+                              offsetX: 0,
+                              offsetY: 0,
+                              socialProfile: {
+                                accountName: '@username',
+                                accountHandle: 'Content Creator',
+                                avatarUrl: '',
+                                bgColor: '#FFFFFF',
+                                textColor: '#000000',
+                                handleColor: '#6B7280',
+                                accentColor: '#0095F6',
+                                verifiedBadgeColor: '#0095F6',
+                                headerHeight: 18,
+                                footerHeight: 8,
+                                headerPosY: 6,
+                                footerPosY: 91,
+                                headerBarHeight: 48,
+                                footerBarHeight: 34,
+                                headerPaddingX: 0,
+                                videoFrameHeight: 66,
+                                videoFrameOffsetY: 0,
+                                footerText: 'Follow for more! 🔥',
+                                showVerifiedBadge: true,
+                                showFollowButton: false,
+                                cardStyle: 'flat',
+                                videoFrameBg: '#000000',
+                                framePadding: 0,
+                                frameBorderRadius: 0,
+                              },
+                            })
+                          }
+                          className="text-[10px] text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 px-2 py-0.5 rounded border border-violet-500/30 flex items-center gap-1 transition-colors"
+                          title="Reset template sosial media ke setelan awal default"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5" />
+                          <span>Reset Template</span>
+                        </button>
+                        <span className="text-[10px] bg-violet-500/15 text-violet-400 px-1.5 py-0.5 rounded font-mono font-semibold">
+                          9:16 Social
+                        </span>
+                      </div>
                     </div>
 
                     <p className="text-outline text-[11px] leading-relaxed">
-                      Template gaya postingan sosial media: profil akun di atas, video di tengah, dan CTA di bawah — sempurna untuk branding konten.
+                      Template postingan sosial media gaya Instagram/TikTok: profil akun rapi di atas tanpa border, video di tengah, dan CTA di bawah.
                     </p>
 
                     {/* Avatar Upload */}
                     <div className="space-y-1.5">
-                      <span className="text-outline text-xs">Foto Profil / Logo</span>
+                      <div className="flex items-center justify-between text-outline text-xs">
+                        <span>Foto Profil Bulat</span>
+                        <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded">Tanpa border</span>
+                      </div>
                       <div className="flex items-center gap-3">
-                        <label className="relative w-12 h-12 rounded-full border-2 border-dashed border-outline-variant/50 hover:border-violet-400 cursor-pointer transition-colors flex items-center justify-center overflow-hidden bg-surface-container group">
+                        <label className="relative w-12 h-12 rounded-full border border-dashed border-outline-variant/50 hover:border-violet-400 cursor-pointer transition-colors flex items-center justify-center overflow-hidden bg-surface-container group">
                           {sp.avatarUrl ? (
                             <img src={sp.avatarUrl} alt="avatar" className="w-full h-full object-cover rounded-full" />
                           ) : (
@@ -2851,7 +2906,7 @@ export function InspectorPanel({
                           />
                         </label>
                         <div className="flex-1 space-y-1">
-                          <p className="text-[11px] text-on-surface-variant">Klik untuk upload foto profil atau logo brand</p>
+                          <p className="text-[11px] text-on-surface-variant">Upload foto profil atau logo brand (avatar bulat bersih)</p>
                           {sp.avatarUrl && (
                             <button
                               type="button"
@@ -2889,20 +2944,74 @@ export function InspectorPanel({
                       />
                     </div>
 
-                    {/* Verified Badge Toggle */}
-                    <div>
+                    {/* Verified Badge Toggle & Platform Presets */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-outline text-xs">Centang Biru (Verified Badge)</span>
+                        <button
+                          type="button"
+                          onClick={() => updateSP({ showVerifiedBadge: !sp.showVerifiedBadge })}
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors border flex items-center gap-1 ${
+                            sp.showVerifiedBadge
+                              ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                              : 'bg-surface-container border-outline-variant/30 text-outline hover:text-on-surface'
+                          }`}
+                        >
+                          {sp.showVerifiedBadge ? 'Aktif' : 'Nonaktif'}
+                        </button>
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => updateSP({ showVerifiedBadge: !sp.showVerifiedBadge })}
-                        className={`w-full py-1.5 px-2 rounded text-[11px] font-medium transition-colors border flex items-center justify-center gap-1.5 ${
+                        className={`w-full py-2 px-2.5 rounded text-[11px] font-medium transition-all border flex items-center justify-between ${
                           sp.showVerifiedBadge
-                            ? 'bg-violet-500/20 text-violet-400 border-violet-500/40'
-                            : 'bg-surface-container border-outline-variant/30 text-on-surface hover:bg-surface-bright'
+                            ? 'bg-blue-500/15 text-white border-blue-500/40 shadow-sm'
+                            : 'bg-surface-container border-outline-variant/30 text-outline hover:bg-surface-bright'
                         }`}
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Centang Biru (Verified Badge)</span>
+                        <div className="flex items-center gap-2">
+                          <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 shrink-0 drop-shadow-sm">
+                            <path
+                              fill={sp.showVerifiedBadge ? (sp.verifiedBadgeColor || '#0095F6') : '#6B7280'}
+                              d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.67-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.67-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34z"
+                            />
+                            <path
+                              fill="#FFFFFF"
+                              d="M10.54 16.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z"
+                            />
+                          </svg>
+                          <span className="font-semibold text-xs">Centang Biru Asli (Verified Rosette)</span>
+                        </div>
+                        <span className="text-[10px] text-blue-300 font-mono">
+                          {sp.showVerifiedBadge ? 'Tampil' : 'Sembunyi'}
+                        </span>
                       </button>
+
+                      {sp.showVerifiedBadge && (
+                        <div className="grid grid-cols-4 gap-1.5 pt-1">
+                          {[
+                            { label: 'Instagram', hex: '#0095F6' },
+                            { label: 'Twitter / X', hex: '#1D9BF0' },
+                            { label: 'TikTok', hex: '#20D5EC' },
+                            { label: 'Gold VIP', hex: '#F59E0B' },
+                          ].map((b) => (
+                            <button
+                              key={b.label}
+                              type="button"
+                              onClick={() => updateSP({ verifiedBadgeColor: b.hex })}
+                              className={`py-1 px-1 rounded text-[10px] font-medium border flex items-center justify-center gap-1 transition-all ${
+                                (sp.verifiedBadgeColor || '#0095F6').toLowerCase() === b.hex.toLowerCase()
+                                  ? 'border-blue-400 bg-blue-500/20 text-white font-bold'
+                                  : 'border-outline-variant/30 bg-surface-container text-outline hover:text-on-surface hover:bg-surface-bright'
+                              }`}
+                            >
+                              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: b.hex }} />
+                              <span className="truncate">{b.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Card Style Presets */}
@@ -3262,7 +3371,7 @@ export function InspectorPanel({
                       <span className="text-outline text-xs font-medium">Preset Tema Cepat</span>
                       <div className="grid grid-cols-3 gap-1.5">
                         {[
-                          { label: 'Clean White', bg: '#FFFFFF', text: '#000000', handle: '#4B5563', accent: '#000000' },
+                          { label: 'Clean White', bg: '#FFFFFF', text: '#000000', handle: '#4B5563', accent: '#0095F6' },
                           { label: 'Midnight', bg: '#0F172A', text: '#FFFFFF', handle: '#94A3B8', accent: '#38BDF8' },
                           { label: 'Snow', bg: '#F8FAFC', text: '#0F172A', handle: '#64748B', accent: '#6366F1' },
                           { label: 'Sunset', bg: '#1C1917', text: '#FEF3C7', handle: '#D97706', accent: '#F59E0B' },
@@ -3272,7 +3381,7 @@ export function InspectorPanel({
                           <button
                             key={t.label}
                             type="button"
-                            onClick={() => updateSP({ bgColor: t.bg, textColor: t.text, handleColor: t.handle, accentColor: t.accent })}
+                            onClick={() => updateSP({ bgColor: t.bg, textColor: t.text, handleColor: t.handle, accentColor: t.accent, verifiedBadgeColor: sp.verifiedBadgeColor || '#0095F6' })}
                             className="py-1.5 px-1 rounded text-[10px] font-medium transition-all border border-outline-variant/30 hover:border-violet-400/50 bg-surface-container hover:bg-surface-bright flex items-center gap-1.5"
                           >
                             <div className="flex -space-x-0.5 shrink-0">

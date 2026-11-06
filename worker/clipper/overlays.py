@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,46 @@ def _hex_to_rgba(hex_str: str, alpha: float = 1.0) -> tuple[int, int, int, int]:
         r, g, b = 255, 255, 255
     a = int(round(max(0.0, min(1.0, alpha)) * 255))
     return (r, g, b, a)
+
+
+def _render_verified_badge(size: int, badge_hex: str = "#0095F6") -> Image.Image:
+    """Render authentic 8-scallop rosette verified badge (Instagram/Meta/X style) with crisp white checkmark."""
+    scale = 4
+    s = max(16, size * scale)
+    badge_img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    bdraw = ImageDraw.Draw(badge_img)
+
+    badge_color = _hex_to_rgba(badge_hex, 1.0)
+    center = s / 2.0
+    r_center = s * 0.44
+    bdraw.ellipse(
+        [center - r_center, center - r_center, center + r_center, center + r_center],
+        fill=badge_color,
+    )
+
+    # 8-scalloped petals/lobes for authentic verified rosette shape
+    r_ring = s * 0.31
+    r_lobe = s * 0.20
+    for i in range(8):
+        angle = i * (math.pi / 4.0)
+        cx = center + r_ring * math.cos(angle)
+        cy = center + r_ring * math.sin(angle)
+        bdraw.ellipse(
+            [cx - r_lobe, cy - r_lobe, cx + r_lobe, cy + r_lobe],
+            fill=badge_color,
+        )
+
+    # Crisp white checkmark with rounded endpoints
+    chk_w = max(2, int(s * 0.088))
+    p1 = (s * 0.29, s * 0.51)
+    p2 = (s * 0.44, s * 0.67)
+    p3 = (s * 0.73, s * 0.35)
+    bdraw.line([p1, p2, p3], fill=(255, 255, 255, 255), width=chk_w, joint="curve")
+    r_cap = chk_w / 2.0
+    for pt in [p1, p3]:
+        bdraw.ellipse([pt[0] - r_cap, pt[1] - r_cap, pt[0] + r_cap, pt[1] + r_cap], fill=(255, 255, 255, 255))
+
+    return badge_img.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def _get_font(font_family: str, size: int, weight: str = "bold") -> ImageFont.FreeTypeFont:
@@ -191,10 +232,6 @@ def generate_static_overlay(frame: dict, target_w: int, target_h: int, output_pa
                 anchor="mm",
             )
 
-        # Border cincin avatar
-        border_w = max(2, int(2.2 * scale_y))
-        draw.ellipse([av_x, av_y, av_x + av_size, av_y + av_size], outline=accent_col, width=border_w)
-
         # C. Nama Akun, Verified Badge, dan Handle
         account_name = sp.get("accountName", "@username") or "@username"
         account_handle = sp.get("accountHandle", "Content Creator") or "Content Creator"
@@ -208,21 +245,15 @@ def generate_static_overlay(frame: dict, target_w: int, target_h: int, output_pa
         name_y = hdr_top_y + (hdr_bar_h - (font_name_size + font_handle_size + int(6 * scale_y))) // 2
         draw.text((name_x, name_y), account_name, font=font_name, fill=text_col)
 
-        # Verified Checkmark Badge
+        # Verified Rosette Checkmark Badge (Authentic Meta / Instagram / X Blue)
         if sp.get("showVerifiedBadge", True):
             name_bbox = draw.textbbox((name_x, name_y), account_name, font=font_name)
-            badge_size = int(font_name_size * 0.88)
+            badge_size = max(14, int(font_name_size * 0.95))
             badge_x = name_bbox[2] + int(8 * scale_x)
-            badge_y = name_y + (font_name_size - badge_size) // 2 + int(1.5 * scale_y)
-            draw.ellipse(
-                [badge_x, badge_y, badge_x + badge_size, badge_y + badge_size],
-                fill=_hex_to_rgba("#3B82F6", 1.0),
-            )
-            chk_w = max(2, int(2.4 * scale_y))
-            p1 = (badge_x + badge_size * 0.28, badge_y + badge_size * 0.52)
-            p2 = (badge_x + badge_size * 0.44, badge_y + badge_size * 0.70)
-            p3 = (badge_x + badge_size * 0.74, badge_y + badge_size * 0.32)
-            draw.line([p1, p2, p3], fill=(255, 255, 255, 255), width=chk_w, joint="curve")
+            badge_y = name_y + (font_name_size - badge_size) // 2 + int(1.0 * scale_y)
+            badge_hex = sp.get("verifiedBadgeColor") or "#0095F6"
+            badge_img = _render_verified_badge(badge_size, badge_hex)
+            img.paste(badge_img, (badge_x, badge_y), badge_img)
 
         handle_y = name_y + font_name_size + int(5 * scale_y)
         draw.text((name_x, handle_y), account_handle, font=font_handle, fill=handle_col)

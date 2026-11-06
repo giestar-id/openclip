@@ -754,7 +754,8 @@ export function CanvasViewport({
       bgColor: '#FFFFFF',
       textColor: '#000000',
       handleColor: '#4B5563',
-      accentColor: '#000000',
+      accentColor: '#0095F6',
+      verifiedBadgeColor: '#0095F6',
       headerHeight: 18,
       footerHeight: 8,
       headerGap: 16,
@@ -806,7 +807,8 @@ export function CanvasViewport({
       bgColor: '#FFFFFF',
       textColor: '#000000',
       handleColor: '#4B5563',
-      accentColor: '#000000',
+      accentColor: '#0095F6',
+      verifiedBadgeColor: '#0095F6',
       headerHeight: 18,
       footerHeight: 8,
       headerGap: 16,
@@ -1549,7 +1551,8 @@ export function CanvasViewport({
                 bgColor: '#FFFFFF',
                 textColor: '#000000',
                 handleColor: '#4B5563',
-                accentColor: '#000000',
+                accentColor: '#0095F6',
+      verifiedBadgeColor: '#0095F6',
                 headerHeight: 18,
                 footerHeight: 8,
                 videoFrameHeight: 66,
@@ -1661,18 +1664,17 @@ export function CanvasViewport({
                       )}
                       {/* Avatar */}
                       <div
-                        className="relative shrink-0 rounded-full overflow-hidden flex items-center justify-center shadow-lg transition-all"
+                        className="relative shrink-0 rounded-full overflow-hidden flex items-center justify-center shadow-md transition-all"
                         style={{
                           width: `${Math.max(22, Math.min(52, headerBarHeight - 12))}px`,
                           height: `${Math.max(22, Math.min(52, headerBarHeight - 12))}px`,
-                          border: `2px solid ${sp.accentColor}`,
                           boxShadow: sp.cardStyle === 'neon' ? `0 0 12px ${sp.accentColor}80` : undefined,
                         }}
                       >
                         {sp.avatarUrl ? (
                           <img src={sp.avatarUrl} alt="" className="w-full h-full object-cover" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: `${sp.accentColor}40`, color: sp.accentColor }}>
+                          <div className="w-full h-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: `${sp.accentColor || '#0095F6'}25`, color: sp.accentColor || '#0095F6' }}>
                             {sp.accountName.replace('@', '').charAt(0).toUpperCase()}
                           </div>
                         )}
@@ -1688,9 +1690,24 @@ export function CanvasViewport({
                             {sp.accountName}
                           </span>
                           {sp.showVerifiedBadge && (
-                            <svg viewBox="0 0 24 24" fill="none" className="shrink-0" style={{ width: `${Math.max(10, Math.min(16, Math.round(headerBarHeight * 0.28)))}px`, height: `${Math.max(10, Math.min(16, Math.round(headerBarHeight * 0.28)))}px` }}>
-                              <circle cx="12" cy="12" r="10" fill={sp.accentColor} />
-                              <path d="M8.5 12.5L10.5 14.5L15.5 9.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              className="shrink-0 select-none drop-shadow-sm"
+                              style={{
+                                width: `${Math.max(12, Math.min(18, Math.round(headerBarHeight * 0.30)))}px`,
+                                height: `${Math.max(12, Math.min(18, Math.round(headerBarHeight * 0.30)))}px`,
+                              }}
+                              aria-label="Verified"
+                            >
+                              <path
+                                fill={sp.verifiedBadgeColor || '#0095F6'}
+                                d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.67-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.67-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34z"
+                              />
+                              <path
+                                fill="#FFFFFF"
+                                d="M10.54 16.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z"
+                              />
                             </svg>
                           )}
                         </div>

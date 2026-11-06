@@ -213,6 +213,7 @@ export interface SocialProfileSettings {
   videoFrameOffsetY?: number; // Pergeseran vertikal posisi bingkai video (-20..+25 %, default 0 = tengah)
   footerText: string; // Teks CTA / keterangan di footer (e.g. "Follow for more!")
   showVerifiedBadge: boolean; // Tampilkan centang biru di samping nama
+  verifiedBadgeColor?: string; // Warna centang biru verified badge (default '#0095F6')
   showFollowButton?: boolean; // Tampilkan tombol "Follow" di header (opsional)
   cardStyle: 'flat' | 'glass' | 'gradient' | 'neon'; // Gaya visual header
   videoHeight?: number; // Persentase tinggi frame video tengah (45..88%, default 74)
