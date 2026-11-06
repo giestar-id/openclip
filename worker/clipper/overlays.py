@@ -203,18 +203,27 @@ def generate_static_overlay(frame: dict, target_w: int, target_h: int, output_pa
             except Exception as e:
                 logger.warning("Gagal render avatar base64: %s", e)
 
-        elif avatar_url and Path(avatar_url).exists():
-            try:
-                av_img = Image.open(avatar_url).convert("RGBA")
-                av_img = av_img.resize((av_size, av_size), Image.Resampling.LANCZOS)
-                mask_res = av_size * 4
-                mask = Image.new("L", (mask_res, mask_res), 0)
-                ImageDraw.Draw(mask).ellipse([0, 0, mask_res - 1, mask_res - 1], fill=255)
-                mask = mask.resize((av_size, av_size), Image.Resampling.LANCZOS)
-                img.paste(av_img, (av_x, av_y), mask)
-                avatar_drawn = True
-            except Exception as e:
-                logger.warning("Gagal render avatar file: %s", e)
+        elif avatar_url:
+            av_file = Path(avatar_url) if Path(avatar_url).exists() else None
+            if not av_file:
+                try:
+                    storage_cand = config.abs_storage(avatar_url)
+                    if storage_cand and storage_cand.exists() and storage_cand.is_file():
+                        av_file = storage_cand
+                except Exception:
+                    pass
+            if av_file:
+                try:
+                    av_img = Image.open(str(av_file)).convert("RGBA")
+                    av_img = av_img.resize((av_size, av_size), Image.Resampling.LANCZOS)
+                    mask_res = av_size * 4
+                    mask = Image.new("L", (mask_res, mask_res), 0)
+                    ImageDraw.Draw(mask).ellipse([0, 0, mask_res - 1, mask_res - 1], fill=255)
+                    mask = mask.resize((av_size, av_size), Image.Resampling.LANCZOS)
+                    img.paste(av_img, (av_x, av_y), mask)
+                    avatar_drawn = True
+                except Exception as e:
+                    logger.warning("Gagal render avatar file: %s", e)
 
         if not avatar_drawn:
             # Fallback avatar: lingkaran aksen dengan inisial nama
@@ -289,16 +298,24 @@ def generate_static_overlay(frame: dict, target_w: int, target_h: int, output_pa
 
         # E. Video Window Rounded Corners Cutouts
         if b_rad > 2:
-            vid_h_pct = max(40.0, min(85.0, float(sp.get("videoFrameHeight", 66)))) / 100.0
+            vid_h_pct = max(15.0, min(90.0, float(sp.get("videoFrameHeight", 66)))) / 100.0
             vid_h = int(target_h * vid_h_pct)
             vid_h = vid_h if vid_h % 2 == 0 else vid_h + 1
+            vid_h = min(target_h, vid_h)
+
             vid_offset_y_pct = float(sp.get("videoFrameOffsetY", 0.0)) / 100.0
-            vid_y = int((target_h - vid_h) / 2 + (target_h * vid_offset_y_pct))
-            vid_y = max(0, min(target_h - vid_h, vid_y))
+            max_vid_y = max(0, target_h - vid_h)
+            raw_vid_y = int((target_h - vid_h) / 2 + (target_h * vid_offset_y_pct))
+            vid_y = max(0, min(max_vid_y, (raw_vid_y // 2) * 2))
 
             pad_px_web = max(0.0, min(50.0, float(sp.get("framePadding", 0))))
-            pad_x = int(target_w * (pad_px_web / 360.0))
-            inner_w = max(200, target_w - 2 * pad_x)
+            pad_pct = pad_px_web / 360.0
+            raw_pad_x = int(target_w * pad_pct)
+            inner_w = max(200, target_w - 2 * raw_pad_x)
+            inner_w = inner_w if inner_w % 2 == 0 else inner_w - 1
+            inner_w = min(target_w, inner_w)
+            max_pad_x = max(0, (target_w - inner_w) // 2)
+            pad_x = max(0, min(max_pad_x, (raw_pad_x // 2) * 2))
 
             # Gambar 4 sudut membulat dengan warna bg_col di atas video
             r = min(b_rad, 60)
@@ -548,6 +565,8 @@ def generate_static_overlay(frame: dict, target_w: int, target_h: int, output_pa
                 wm_y = int(target_h * 0.95) - wm_h
 
         wm_radius = wm_h // 2
+        wm_x = max(0, min(target_w - wm_w, wm_x))
+        wm_y = max(0, min(target_h - wm_h, wm_y))
         if wm_bg[3] > 0:
             draw.rounded_rectangle([wm_x, wm_y, wm_x + wm_w, wm_y + wm_h], radius=wm_radius, fill=wm_bg)
 

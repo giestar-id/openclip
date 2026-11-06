@@ -89,7 +89,7 @@ def run_ffmpeg(
     proc.wait()
     t.join(timeout=2)
     if proc.returncode != 0:
-        msg = "\n".join(list(tail)[-8:])
+        msg = "\n".join(list(tail)[-20:])
         raise FFmpegError(f"FFmpeg gagal (kode {proc.returncode}):\n{msg}")
 
 

@@ -452,10 +452,10 @@ export function TimelineTrack({
                   onDeleteCaptionSegment?.(selectedCaptionId);
                   setSelectedCaptionId(null);
                 }}
-                className="h-6 px-2 rounded text-[11px] font-semibold bg-error/15 hover:bg-error/25 text-error flex items-center gap-1 transition-colors border border-error/30 shadow-xs shrink-0 animate-pulse"
+                className="h-6 px-2 rounded text-[11px] font-semibold bg-error/15 hover:bg-error/25 text-error flex items-center gap-1 transition-colors border border-error/30 shadow-xs shrink-0 cursor-pointer"
                 title="Hapus baris subtitel yang sedang dipilih di timeline (Shortcut: Del / Backspace)"
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-3.5 h-3.5" />
                 <span>Hapus Subtitel</span>
               </button>
             </>
@@ -579,7 +579,7 @@ export function TimelineTrack({
           </div>
 
           {/* V1 Video Header */}
-          <div className="h-13 px-2 flex items-center justify-between bg-surface-container hover:bg-surface-container-high transition-colors">
+          <div className="h-[52px] px-2 flex items-center justify-between bg-surface-container hover:bg-surface-container-high transition-colors">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="px-1 py-0.2 rounded bg-primary text-on-primary font-label-sm text-[9px] font-bold">
                 V1
@@ -698,7 +698,7 @@ export function TimelineTrack({
             </div>
 
             {/* Lane 2: Video Track (V1) With In/Out Range & Drag Trimmers */}
-            <div className="h-13 w-full relative flex items-center bg-surface-dim/60 border-b border-surface-container-highest/20 px-0.5">
+            <div className="h-[52px] w-full relative flex items-center bg-surface-dim/60 border-b border-surface-container-highest/20 px-0.5">
               {/* Dimmed Out-of-bounds left */}
               <div
                 className="absolute top-0 bottom-0 left-0 bg-black/50 z-10 pointer-events-none"

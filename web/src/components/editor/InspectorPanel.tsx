@@ -866,7 +866,7 @@ export function InspectorPanel({
                   <div className="flex items-center justify-between text-outline text-[11px] font-mono">
                     <button
                       type="button"
-                      onClick={() => onSeek(seg.start)}
+                      onClick={() => onSeek?.(seg.start)}
                       className="text-secondary font-semibold hover:text-primary hover:underline flex items-center gap-1 cursor-pointer transition-colors"
                       title="Klik untuk melompat ke kalimat ini pada video"
                     >
@@ -2369,7 +2369,7 @@ export function InspectorPanel({
               {/* Mode Crop vs Fit Blur vs Fit Letterbox vs Podcast Split vs Social Profile */}
               <div>
                 <span className="text-outline block mb-1.5">Mode Penyesuaian</span>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <button
                     onClick={() => {
                       const spks = frame.detectedSpeakers || [];
@@ -2379,7 +2379,7 @@ export function InspectorPanel({
                         : (frame.offsetX || 0);
                       onUpdateFrame({ ...frame, mode: 'crop', offsetX: targetX, faceTracking: true });
                     }}
-                    className={`py-1.5 px-2 rounded text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[84px] py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                       frame.mode === 'crop'
                         ? 'bg-primary text-on-primary shadow-sm'
                         : 'bg-surface-container text-on-surface hover:bg-surface-bright'
@@ -2400,7 +2400,7 @@ export function InspectorPanel({
                         splitDividerColor: frame.splitDividerColor || '#38BDF8',
                       })
                     }
-                    className={`py-1.5 px-2 rounded text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[84px] py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                       frame.mode === 'split'
                         ? 'bg-primary text-on-primary shadow-sm'
                         : 'bg-surface-container text-on-surface hover:bg-surface-bright'
@@ -2436,7 +2436,7 @@ export function InspectorPanel({
                         },
                       })
                     }
-                    className={`py-1.5 px-2 rounded text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[84px] py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                       frame.mode === 'social'
                         ? 'bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white shadow-sm shadow-violet-500/30'
                         : 'bg-surface-container text-on-surface hover:bg-surface-bright'
@@ -2447,7 +2447,7 @@ export function InspectorPanel({
                   </button>
                   <button
                     onClick={() => onUpdateFrame({ ...frame, mode: 'fit_blur' })}
-                    className={`py-1.5 px-2 rounded text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[84px] py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                       frame.mode === 'fit_blur'
                         ? 'bg-primary text-on-primary shadow-sm'
                         : 'bg-surface-container text-on-surface hover:bg-surface-bright'
@@ -2458,7 +2458,7 @@ export function InspectorPanel({
                   </button>
                   <button
                     onClick={() => onUpdateFrame({ ...frame, mode: 'fit' })}
-                    className={`py-1.5 px-2 rounded text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[84px] py-1.5 px-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                       frame.mode === 'fit'
                         ? 'bg-primary text-on-primary shadow-sm'
                         : 'bg-surface-container text-on-surface hover:bg-surface-bright'
@@ -2951,31 +2951,8 @@ export function InspectorPanel({
                     </div>
 
                     {/* Verified Badge Toggle & Platform Presets */}
-                    <div className="space-y-1.5">
+                    <div className="space-y-2 bg-surface-container/60 p-2.5 rounded-lg border border-outline-variant/20">
                       <div className="flex items-center justify-between">
-                        <span className="text-outline text-xs">Centang Biru (Verified Badge)</span>
-                        <button
-                          type="button"
-                          onClick={() => updateSP({ showVerifiedBadge: !sp.showVerifiedBadge })}
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors border flex items-center gap-1 ${
-                            sp.showVerifiedBadge
-                              ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
-                              : 'bg-surface-container border-outline-variant/30 text-outline hover:text-on-surface'
-                          }`}
-                        >
-                          {sp.showVerifiedBadge ? 'Aktif' : 'Nonaktif'}
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => updateSP({ showVerifiedBadge: !sp.showVerifiedBadge })}
-                        className={`w-full py-2 px-2.5 rounded text-[11px] font-medium transition-all border flex items-center justify-between ${
-                          sp.showVerifiedBadge
-                            ? 'bg-blue-500/15 text-white border-blue-500/40 shadow-sm'
-                            : 'bg-surface-container border-outline-variant/30 text-outline hover:bg-surface-bright'
-                        }`}
-                      >
                         <div className="flex items-center gap-2">
                           <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 shrink-0 drop-shadow-sm">
                             <path
@@ -2987,15 +2964,29 @@ export function InspectorPanel({
                               d="M10.54 16.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z"
                             />
                           </svg>
-                          <span className="font-semibold text-xs">Centang Biru Asli (Verified Rosette)</span>
+                          <div>
+                            <span className="font-semibold text-xs text-on-surface block leading-tight">
+                              Centang Biru (Verified Badge)
+                            </span>
+                            <span className="text-[10px] text-outline block leading-tight">
+                              Tampilkan ikon verifikasi resmi di samping nama
+                            </span>
+                          </div>
                         </div>
-                        <span className="text-[10px] text-blue-300 font-mono">
-                          {sp.showVerifiedBadge ? 'Tampil' : 'Sembunyi'}
-                        </span>
-                      </button>
+
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sp.showVerifiedBadge)}
+                            onChange={(e) => updateSP({ showVerifiedBadge: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                      </div>
 
                       {sp.showVerifiedBadge && (
-                        <div className="grid grid-cols-4 gap-1.5 pt-1">
+                        <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-surface-container-high/30">
                           {[
                             { label: 'Instagram', hex: '#0095F6' },
                             { label: 'Twitter / X', hex: '#1D9BF0' },
@@ -3006,7 +2997,7 @@ export function InspectorPanel({
                               key={b.label}
                               type="button"
                               onClick={() => updateSP({ verifiedBadgeColor: b.hex })}
-                              className={`py-1 px-1 rounded text-[10px] font-medium border flex items-center justify-center gap-1 transition-all ${
+                              className={`py-1 px-1 rounded text-[10px] font-medium border flex items-center justify-center gap-1 transition-all cursor-pointer ${
                                 (sp.verifiedBadgeColor || '#0095F6').toLowerCase() === b.hex.toLowerCase()
                                   ? 'border-blue-400 bg-blue-500/20 text-white font-bold'
                                   : 'border-outline-variant/30 bg-surface-container text-outline hover:text-on-surface hover:bg-surface-bright'

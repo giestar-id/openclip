@@ -46,6 +46,21 @@ export async function POST(
       );
     }
 
+    // Cek apakah ada antrean export yang masih 'queued' untuk clip ini agar tidak duplicate queue
+    const existingQueued = await queryOne<{ id: number }>(
+      "SELECT id FROM exports WHERE clip_id = ? AND status = 'queued' ORDER BY id DESC LIMIT 1",
+      [clipId]
+    );
+
+    if (existingQueued) {
+      await execute("UPDATE exports SET resolution = ? WHERE id = ?", [resolution, existingQueued.id]);
+      return NextResponse.json({
+        export_id: existingQueued.id,
+        status: 'queued',
+        resolution,
+      }, { status: 200 });
+    }
+
     const exportId = await execute(
       `
       INSERT INTO exports (

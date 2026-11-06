@@ -65,8 +65,10 @@ def get_optimized_video_encoder_args() -> list[str]:
     return list(_BEST_ENCODER_CONFIG)
 
 
-def _escape_filter_path(path: Path | str) -> str:
+def _escape_filter_path(path: Path | str | None) -> str:
     """Escape path untuk argumen filter FFmpeg di Windows / Unix."""
+    if not path:
+        return ""
     p_str = Path(path).resolve().as_posix()
     # Di Windows, ganti C:/... menjadi C\:/...
     if len(p_str) > 1 and p_str[1] == ":":
@@ -292,8 +294,12 @@ def build_filtergraph(
 
     if ass_path:
         escaped_ass = _escape_filter_path(ass_path)
-        escaped_fonts = _escape_filter_path(fonts_dir)
-        ass_filter = f"ass='{escaped_ass}':fontsdir='{escaped_fonts}'"
+        actual_fonts = fonts_dir or config.FONTS_DIR
+        escaped_fonts = _escape_filter_path(actual_fonts)
+        if escaped_fonts:
+            ass_filter = f"ass='{escaped_ass}':fontsdir='{escaped_fonts}'"
+        else:
+            ass_filter = f"ass='{escaped_ass}'"
     else:
         ass_filter = ""
 
@@ -329,9 +335,12 @@ def build_filtergraph(
 
     if mode == "fit_blur":
         blur_sigma = int(frame.get("blur", 24))
-        ds_w = 270 if target_w >= 1080 else 180
-        ds_h = 480 if target_h >= 1920 else 320
-        ds_sigma = max(3, min(10, int(blur_sigma * (ds_w / target_w) * 0.75)))
+        # Skala blur proporsional dengan aspect ratio canvas (bebas distorsi untuk 9:16, 1:1, dan 16:9)
+        ds_w = max(64, int(target_w // 4))
+        ds_h = max(64, int(target_h // 4))
+        ds_w = ds_w if ds_w % 2 == 0 else ds_w + 1
+        ds_h = ds_h if ds_h % 2 == 0 else ds_h + 1
+        ds_sigma = max(3, min(10, int(blur_sigma * 0.25 * 0.75)))
 
         if has_overlay:
             fc = (
@@ -341,7 +350,7 @@ def build_filtergraph(
                 f"gblur=sigma={ds_sigma}:steps=1,"
                 f"scale={target_w}:{target_h}:flags=bilinear,"
                 f"eq=brightness=-0.12:contrast=0.95[bg];"
-                f"[fg_src]scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease{fx_comma}[fg];"
+                f"[fg_src]scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2{fx_comma}[fg];"
                 f"[bg][fg]overlay=(W-w)/2+(W*{offset_x:.3f}):(H-h)/2+(H*{offset_y:.3f})[v_merged];"
                 f"movie='{esc_ov}'[ov];"
                 f"[v_merged][ov]overlay=0:0[v_with_ov];"
@@ -355,7 +364,7 @@ def build_filtergraph(
                 f"gblur=sigma={ds_sigma}:steps=1,"
                 f"scale={target_w}:{target_h}:flags=bilinear,"
                 f"eq=brightness=-0.12:contrast=0.95[bg];"
-                f"[fg_src]scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease{fx_comma}[fg];"
+                f"[fg_src]scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2{fx_comma}[fg];"
                 f"[bg][fg]overlay=(W-w)/2+(W*{offset_x:.3f}):(H-h)/2+(H*{offset_y:.3f})[v_merged];"
                 f"[v_merged]{post_str}[outv]"
             )
@@ -378,33 +387,20 @@ def build_filtergraph(
         div_w = max(0, min(12, int(frame.get("splitDividerWidth", 2))))
         div_col = frame.get("splitDividerColor", "#38bdf8")
 
-        drawbox = f",drawbox=x=0:y={top_h - div_w//2}:w={target_w}:h={div_w}:color={div_col}@1:t=fill" if div_w > 0 else ""
+        def _make_split_box(prefix: str, box_h: int, zoom: float, off_x: float, off_y: float) -> str:
+            scaled_w = int(target_w * zoom)
+            scaled_h = int(box_h * zoom)
+            scaled_w = scaled_w if scaled_w % 2 == 0 else scaled_w + 1
+            scaled_h = scaled_h if scaled_h % 2 == 0 else scaled_h + 1
+            return (
+                f"[{prefix}_src]split=2[{prefix}_bg_src][{prefix}_fg_src];"
+                f"[{prefix}_bg_src]scale={target_w}:{box_h}:force_original_aspect_ratio=increase,crop={target_w}:{box_h},gblur=sigma=16:steps=1,eq=brightness=-0.15[{prefix}_bg];"
+                f"[{prefix}_fg_src]scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[{prefix}_fg];"
+                f"[{prefix}_bg][{prefix}_fg]overlay=(W-w)/2+(W*{off_x:.3f}):(H-h)/2+(H*{off_y:.3f})[{prefix}_v]"
+            )
 
-        eff_top_zoom = max(top_zoom, 1.0 + 2.0 * abs(top_y))
-        eff_bot_zoom = max(bot_zoom, 1.0 + 2.0 * abs(bot_y))
-
-        def _make_split_box(prefix: str, box_h: int, zoom: float, eff_zoom: float, off_x: float, off_y: float) -> str:
-            if zoom < 1.55:
-                w = int(target_w * zoom)
-                w = w if w % 2 == 0 else w + 1
-                return (
-                    f"[{prefix}_src]split=2[{prefix}_bg][{prefix}_fg];"
-                    f"[{prefix}_bg]scale={target_w}:{box_h}:force_original_aspect_ratio=increase,crop={target_w}:{box_h},gblur=sigma=16:steps=1,eq=brightness=-0.15[{prefix}_bg_v];"
-                    f"[{prefix}_fg]scale={w}:-2[{prefix}_fg_v];"
-                    f"[{prefix}_bg_v][{prefix}_fg_v]overlay=(W-w)/2+(W*{off_x:.3f}):(H-h)/2+(H*{off_y:.3f})[{prefix}_v]"
-                )
-            else:
-                sw = int(target_w * (eff_zoom / 1.58))
-                sh = int(box_h * (eff_zoom / 1.58))
-                sw = sw if sw % 2 == 0 else sw + 1
-                sh = sh if sh % 2 == 0 else sh + 1
-                return (
-                    f"[{prefix}_src]scale={sw}:{sh}:force_original_aspect_ratio=increase,"
-                    f"crop={target_w}:{box_h}:min(iw-{target_w}\\,max(0\\,(iw-{target_w})/2-(iw*{off_x:.3f}))):min(ih-{box_h}\\,max(0\\,(ih-{box_h})/2-(ih*{off_y:.3f})))[{prefix}_v]"
-                )
-
-        t_filter = _make_split_box("t", top_h, top_zoom, eff_top_zoom, top_x, top_y)
-        b_filter = _make_split_box("b", bot_h, bot_zoom, eff_bot_zoom, bot_x, bot_y)
+        t_filter = _make_split_box("t", top_h, top_zoom, top_x, top_y)
+        b_filter = _make_split_box("b", bot_h, bot_zoom, bot_x, bot_y)
 
         stacked_filters = []
         if div_w > 0:
@@ -470,12 +466,13 @@ def build_filtergraph(
         vid_h_pct = max(15.0, min(90.0, float(sp.get("videoFrameHeight", 66)))) / 100.0
         vid_h = int(target_h * vid_h_pct)
         vid_h = vid_h if vid_h % 2 == 0 else vid_h + 1
+        vid_h = min(target_h, vid_h)
 
         # Posisi vertikal tengah video di kanvas (dapat digeser ke atas / ke bawah)
         vid_offset_y_pct = float(sp.get("videoFrameOffsetY", 0.0)) / 100.0
-        vid_y = int((target_h - vid_h) / 2 + (target_h * vid_offset_y_pct))
-        vid_y = max(0, min(target_h - vid_h, vid_y))
-        vid_y = vid_y if vid_y % 2 == 0 else vid_y + 1
+        max_vid_y = max(0, target_h - vid_h)
+        raw_vid_y = int((target_h - vid_h) / 2 + (target_h * vid_offset_y_pct))
+        vid_y = max(0, min(max_vid_y, (raw_vid_y // 2) * 2))
 
         bg_color = sp.get("bgColor", "#FFFFFF")
         if bg_color.startswith("#"):
@@ -488,10 +485,12 @@ def build_filtergraph(
         # Horizontal Frame Margin / Inset (Garis Kiri & Kanan yang bisa di-adjust)
         pad_px_web = max(0.0, min(50.0, float(sp.get("framePadding", 0))))
         pad_pct = pad_px_web / 360.0  # Basis lebar kanvas editor 360px
-        pad_x = int(target_w * pad_pct)
-        pad_x = pad_x if pad_x % 2 == 0 else pad_x + 1
-        inner_w = max(200, target_w - 2 * pad_x)
-        inner_w = inner_w if inner_w % 2 == 0 else inner_w + 1
+        raw_pad_x = int(target_w * pad_pct)
+        inner_w = max(200, target_w - 2 * raw_pad_x)
+        inner_w = inner_w if inner_w % 2 == 0 else inner_w - 1
+        inner_w = min(target_w, inner_w)
+        max_pad_x = max(0, (target_w - inner_w) // 2)
+        pad_x = max(0, min(max_pad_x, (raw_pad_x // 2) * 2))
 
         eff_zoom = max(zoom, 1.0 + 2.05 * abs(offset_y))
         crop_x = _build_dynamic_crop_x_expr(frame, inner_w, offset_x)

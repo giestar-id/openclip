@@ -296,7 +296,14 @@ def _ts(t: float) -> str:
 
 
 def _esc(text: str) -> str:
-    return text.replace("\\", "/").replace("{", "(").replace("}", ")").replace("\n", " ")
+    return (
+        str(text or "")
+        .replace("\r", "")
+        .replace("\\", "/")
+        .replace("{", "(")
+        .replace("}", ")")
+        .replace("\n", " ")
+    )
 
 
 def build_ass(

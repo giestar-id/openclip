@@ -29,7 +29,23 @@ if not clip:
     sys.exit(1)
 
 p = db.one("SELECT source_path FROM projects WHERE id = ?", (clip["project_id"],))
-src_video = config.abs_storage(p["source_path"])
+src_video = None
+if p and p.get("source_path"):
+    try:
+        cand = config.abs_storage(p["source_path"])
+        if cand.exists():
+            src_video = cand
+    except Exception:
+        pass
+if not src_video:
+    pdir = config.project_dir(clip["project_id"])
+    for f in pdir.glob("source.*"):
+        if f.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"):
+            src_video = f
+            break
+if not src_video or not src_video.exists():
+    print("ERROR:Video source file not found")
+    sys.exit(1)
 edit = db.one("SELECT frame, caption_segments FROM clip_edits WHERE clip_id = ?", (clip_id,))
 
 cur_frame = json.loads(edit["frame"]) if edit and edit.get("frame") else {}

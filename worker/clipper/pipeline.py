@@ -535,15 +535,37 @@ def process_export_job(export_id: int) -> None:
         (export_id,),
     )
     if not exp:
+        logger.warning("Export #%d tidak valid (klip atau project terkait tidak ditemukan). Menandai sebagai failed.", export_id)
+        db.execute("UPDATE exports SET status = 'failed', error = 'Klip atau project terkait telah dihapus' WHERE id = %s", (export_id,))
         return
 
     logger.info(">>> Memulai Export #%d (Clip #%d, Resolusi=%s)", export_id, exp["clip_id"], exp["resolution"])
     db.execute("UPDATE exports SET status = 'rendering', progress = 5, error = NULL WHERE id = %s", (export_id,))
 
     try:
-        src_path = config.abs_storage(exp["source_path"])
-        if not src_path.exists():
-            raise FileNotFoundError(f"File video sumber tidak ditemukan di {src_path}")
+        # Resolusi file video sumber dengan fallback cerdas
+        src_path: Path | None = None
+        if exp.get("source_path"):
+            try:
+                cand = config.abs_storage(exp["source_path"])
+                if cand.exists() and cand.is_file():
+                    src_path = cand
+            except Exception:
+                pass
+
+        if not src_path:
+            pdir = config.project_dir(exp["project_id"])
+            for f in pdir.glob("source.*"):
+                if f.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"):
+                    src_path = f
+                    try:
+                        db.update_project(exp["project_id"], source_path=config.rel_storage(f))
+                    except Exception:
+                        pass
+                    break
+
+        if not src_path or not src_path.exists():
+            raise FileNotFoundError(f"File video sumber tidak ditemukan untuk Project #{exp['project_id']}")
 
         res = exp["resolution"] or "1080p"
         exports_dir = config.STORAGE_DIR / "exports"
@@ -553,14 +575,31 @@ def process_export_job(export_id: int) -> None:
         out_name = f"export_p{exp['project_id']}_c{exp['clip_id']}_{res}_{timestamp_str}.mp4"
         out_file = exports_dir / out_name
 
-        segments = db.from_json(exp.get("caption_segments"), [])
         style = db.from_json(exp.get("style"), {})
         frame = db.from_json(exp.get("frame"), {})
         audio = db.from_json(exp.get("audio"), {})
+        segments = db.from_json(exp.get("caption_segments"), [])
 
+        # Fallback transkrip kata jika belum ada di clip_edits
+        if not segments:
+            tr = db.one("SELECT words FROM transcripts WHERE project_id = %s", (exp["project_id"],))
+            if tr and tr.get("words"):
+                tr_words = db.from_json(tr["words"], [])
+                if tr_words:
+                    segments = captions.build_segments(
+                        tr_words,
+                        float(exp["start_sec"]),
+                        float(exp["end_sec"]),
+                        highlight=style.get("highlightKeywords", True),
+                    )
+
+        last_pct = 5
         def on_exp_progress(frac: float) -> None:
+            nonlocal last_pct
             pct = 5 + int(frac * 90)
-            db.execute("UPDATE exports SET progress = %s WHERE id = %s", (pct, export_id))
+            if pct > last_pct:
+                last_pct = pct
+                db.execute("UPDATE exports SET progress = %s WHERE id = %s", (pct, export_id))
 
         export.render_clip(
             src_video=src_path,

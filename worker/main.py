@@ -140,6 +140,17 @@ def _project_worker_loop() -> None:
     p_logger = logging.getLogger("worker.project")
     p_logger.info("Project Worker aktif. Memantau antrean transkrip & analisis AI...")
 
+    # Otomatis pulihkan project yang sempat terhenti saat worker restart
+    try:
+        reset_cnt = db.execute(
+            "UPDATE projects SET status = 'queued', progress = 0 "
+            "WHERE status IN ('downloading', 'transcribing', 'analyzing', 'cutting')"
+        )
+        if reset_cnt > 0:
+            p_logger.info("Mereset %d project yang sempat terhenti kembali ke antrean 'queued'.", reset_cnt)
+    except Exception as e:
+        p_logger.warning("Gagal mereset project terhenti: %s", e)
+
     while not _STOP:
         job_done = False
         try:
@@ -166,6 +177,14 @@ def _export_worker_loop() -> None:
     """Loop worker independen khusus menangani antrean render video & burn-in FFmpeg."""
     e_logger = logging.getLogger("worker.export")
     e_logger.info("Export Worker aktif. Memantau antrean render video & burn-in FFmpeg...")
+
+    # Otomatis pulihkan job export yang sempat terhenti (stuck rendering) saat worker restart
+    try:
+        reset_cnt = db.execute("UPDATE exports SET status = 'queued', progress = 0 WHERE status = 'rendering'")
+        if reset_cnt > 0:
+            e_logger.info("Mereset %d job ekspor yang sempat terhenti kembali ke antrean 'queued'.", reset_cnt)
+    except Exception as e:
+        e_logger.warning("Gagal mereset job ekspor terhenti: %s", e)
 
     while not _STOP:
         job_done = False

@@ -20,6 +20,11 @@ import {
   Save,
   Check,
   HardDrive,
+  Mic,
+  Cloud,
+  Laptop,
+  Sliders,
+  Info,
 } from 'lucide-react';
 import { cleanApiKey } from '@/lib/apiKeyUtils';
 
@@ -241,9 +246,7 @@ export default function SettingsPage() {
 
         {loading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-3">
-            <span className="material-symbols-outlined text-primary text-[36px] animate-spin">
-              progress_activity
-            </span>
+            <Loader2 className="w-9 h-9 text-primary animate-spin" />
             <span className="font-label-md text-xs text-outline">Memuat pengaturan...</span>
           </div>
         ) : (
@@ -718,7 +721,7 @@ export default function SettingsPage() {
             <div className="bg-surface-container-low p-5 rounded-xl border border-surface-container-highest/40 shadow-lg space-y-4">
               <div>
                 <h3 className="font-headline-sm text-sm font-semibold text-on-surface flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-primary text-[18px]">record_voice_over</span>
+                  <Mic className="w-4 h-4 text-primary" />
                   Mesin Transkripsi Audio (Speech-to-Text)
                 </h3>
                 <p className="text-[11px] text-outline mt-0.5">
@@ -737,7 +740,7 @@ export default function SettingsPage() {
                       : 'bg-surface-container-lowest border-surface-container-high/80 text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[24px]">cloud</span>
+                  <Cloud className="w-6 h-6 shrink-0" />
                   <div className="flex flex-col">
                     <span className="text-xs font-bold font-mono">Cloud API</span>
                     <span className="text-[10px] opacity-75">Groq • Gemini • OpenAI</span>
@@ -753,7 +756,7 @@ export default function SettingsPage() {
                       : 'bg-surface-container-lowest border-surface-container-high/80 text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[24px]">computer</span>
+                  <Laptop className="w-6 h-6 shrink-0" />
                   <div className="flex flex-col">
                     <span className="text-xs font-bold font-mono">Lokal (faster-whisper)</span>
                     <span className="text-[10px] opacity-75">CPU / GPU • 100% Offline</span>
@@ -766,7 +769,7 @@ export default function SettingsPage() {
                 <div className="p-4 rounded-xl bg-surface-container-lowest border border-primary/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-primary text-[16px]">tune</span>
+                      <Sliders className="w-4 h-4 text-primary" />
                       Pilihan Cloud Provider Transkripsi
                     </label>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10 text-primary font-semibold">
@@ -805,7 +808,7 @@ export default function SettingsPage() {
                   </div>
 
                   <p className="text-[10px] text-outline flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[13px] text-secondary">check_circle</span>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-secondary shrink-0" />
                     Daftar transkripsi otomatis menyesuaikan dengan Kunci API yang terisi di atas.
                   </p>
                 </div>
@@ -816,7 +819,7 @@ export default function SettingsPage() {
                 <div className="p-4 rounded-xl bg-surface-container-lowest border border-primary/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-primary text-[16px]">tune</span>
+                      <Sliders className="w-4 h-4 text-primary" />
                       Konfigurasi Model faster-whisper Lokal
                     </label>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary/10 text-secondary font-semibold">
@@ -873,7 +876,7 @@ export default function SettingsPage() {
                   </div>
 
                   <p className="text-[10px] text-outline flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[13px] text-secondary">info</span>
+                    <Info className="w-3.5 h-3.5 text-secondary shrink-0" />
                     Model diunduh sekali saja ke Drive D (<code className="text-secondary font-mono">storage/models</code>) dan berjalan gratis tanpa internet.
                   </p>
                 </div>
@@ -883,7 +886,7 @@ export default function SettingsPage() {
             {/* Section 3: AI Provider Analisis Klip */}
             <div className="bg-surface-container-low p-5 rounded-xl border border-surface-container-highest/40 shadow-lg space-y-4">
               <h3 className="font-headline-sm text-sm font-semibold text-on-surface flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-primary text-[18px]">psychology</span>
+                <Brain className="w-4 h-4 text-primary" />
                 Provider LLM Analisis Klip
               </h3>
 
@@ -914,7 +917,7 @@ export default function SettingsPage() {
                   <option value="heuristic">Heuristik Offline (Tanpa API Key — Analisis Audio &amp; Kata)</option>
                 </select>
                 <p className="text-[10px] text-outline flex items-center gap-1 mt-2">
-                  <span className="material-symbols-outlined text-[13px] text-secondary">auto_awesome</span>
+                  <Sparkles className="w-3.5 h-3.5 text-secondary shrink-0" />
                   Daftar AI otomatis menyesuaikan dengan Kunci API yang terisi. Penyedia yang belum memiliki Kunci API disembunyikan.
                 </p>
               </div>

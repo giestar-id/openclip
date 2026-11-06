@@ -2,10 +2,29 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { Project } from '@/lib/types';
 import { formatDuration } from '@/lib/captions';
+import {
+  Link2,
+  UploadCloud,
+  Search,
+  AlertCircle,
+  Film,
+  Clock,
+  X,
+  CheckCircle2,
+  Mic,
+  Laptop,
+  Cloud,
+  Languages,
+  Brain,
+  Sparkles,
+  Subtitles,
+  Crop,
+} from 'lucide-react';
 
 interface ProbeResult {
   title: string;
@@ -369,7 +388,7 @@ export default function NewProjectPage() {
                     : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container/60'
                 }`}
               >
-                <span className="material-symbols-outlined text-[18px]">link</span>
+                <Link2 className="w-4 h-4" />
                 <span>Link Video (YouTube)</span>
               </button>
 
@@ -382,7 +401,7 @@ export default function NewProjectPage() {
                     : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container/60'
                 }`}
               >
-                <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
+                <UploadCloud className="w-4 h-4" />
                 <span>Upload dari Perangkat</span>
               </button>
             </div>
@@ -395,9 +414,7 @@ export default function NewProjectPage() {
                 </label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-outline text-[18px]">
-                      link
-                    </span>
+                    <Link2 className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-outline" />
                     <input
                       type="url"
                       value={url}
@@ -419,7 +436,7 @@ export default function NewProjectPage() {
                       </>
                     ) : (
                       <>
-                        <span className="material-symbols-outlined text-[17px] text-primary">travel_explore</span>
+                        <Search className="w-4 h-4 text-primary" />
                         <span>Periksa Link</span>
                       </>
                     )}
@@ -428,7 +445,7 @@ export default function NewProjectPage() {
 
                 {probeError && (
                   <p className="text-xs text-error font-medium flex items-center gap-1 mt-1">
-                    <span className="material-symbols-outlined text-[14px]">error</span>
+                    <AlertCircle className="w-3.5 h-3.5" />
                     {probeError}
                   </p>
                 )}
@@ -463,7 +480,7 @@ export default function NewProjectPage() {
                     }`}
                   >
                     <div className="w-14 h-14 rounded-full bg-surface-container-high flex items-center justify-center mb-3 text-primary group-hover:scale-110 transition-transform">
-                      <span className="material-symbols-outlined text-[28px]">upload_file</span>
+                      <UploadCloud className="w-7 h-7" />
                     </div>
 
                     <h4 className="font-sans font-bold text-sm text-on-surface">
@@ -490,7 +507,7 @@ export default function NewProjectPage() {
                       />
                     ) : (
                       <div className="w-24 h-16 rounded bg-surface-container-lowest border border-surface-container-highest flex items-center justify-center text-outline shrink-0">
-                        <span className="material-symbols-outlined text-[24px]">movie</span>
+                        <Film className="w-6 h-6" />
                       </div>
                     )}
 
@@ -501,7 +518,7 @@ export default function NewProjectPage() {
                       <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] font-mono text-on-surface-variant">
                         {localFile.duration > 0 && (
                           <span className="flex items-center gap-1 text-primary">
-                            <span className="material-symbols-outlined text-[14px]">schedule</span>
+                            <Clock className="w-3.5 h-3.5" />
                             {formatDuration(localFile.duration)}
                           </span>
                         )}
@@ -530,7 +547,7 @@ export default function NewProjectPage() {
                         className="p-1.5 rounded text-outline hover:text-error hover:bg-error-container/20 transition-colors"
                         title="Hapus pilihan"
                       >
-                        <span className="material-symbols-outlined text-[18px]">close</span>
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
@@ -555,7 +572,7 @@ export default function NewProjectPage() {
                   <div className="flex items-center gap-3 mt-1 text-[11px] font-mono text-on-surface-variant">
                     {probeResult.duration && (
                       <span className="flex items-center gap-1 text-primary">
-                        <span className="material-symbols-outlined text-[14px]">schedule</span>
+                        <Clock className="w-3.5 h-3.5" />
                         {formatDuration(probeResult.duration)}
                       </span>
                     )}
@@ -569,9 +586,7 @@ export default function NewProjectPage() {
                     )}
                   </div>
                 </div>
-                <span className="material-symbols-outlined text-secondary text-[22px] shrink-0">
-                  check_circle
-                </span>
+                <CheckCircle2 className="w-5 h-5 text-secondary shrink-0" />
               </div>
             )}
 
@@ -580,7 +595,7 @@ export default function NewProjectPage() {
               {/* Option 1: Durasi Klip */}
               <div className="space-y-2">
                 <label className="text-xs font-mono font-semibold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-primary text-[16px]">schedule</span>
+                  <Clock className="w-4 h-4 text-primary" />
                   Target Durasi Klip
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -610,7 +625,7 @@ export default function NewProjectPage() {
               <div className="space-y-2">
                 <label className="text-xs font-mono font-semibold text-on-surface uppercase tracking-wider flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-primary text-[16px]">record_voice_over</span>
+                    <Mic className="w-4 h-4 text-primary" />
                     Engine Transkrip (Whisper)
                   </span>
                   {transcribeMode === 'api' && (activeKeys.groq || activeKeys.gemini || activeKeys.openai) && (
@@ -629,7 +644,7 @@ export default function NewProjectPage() {
                         : 'bg-surface-container-lowest border-surface-container-high/80 text-on-surface-variant hover:text-on-surface hover:bg-surface-container hover:border-outline-variant/60 font-medium'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[18px]">computer</span>
+                    <Laptop className="w-4 h-4 shrink-0" />
                     <div className="flex flex-col items-start leading-tight">
                       <span className="font-bold">Lokal Whisper</span>
                       <span className="text-[10px] opacity-75">CPU/GPU • Gratis</span>
@@ -650,7 +665,7 @@ export default function NewProjectPage() {
                         : 'bg-surface-container-lowest border-surface-container-high/80 text-on-surface-variant hover:text-on-surface hover:bg-surface-container hover:border-outline-variant/60 font-medium'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[18px]">cloud</span>
+                    <Cloud className="w-4 h-4 shrink-0" />
                     <div className="flex flex-col items-start leading-tight">
                       <span className="font-bold">Cloud API</span>
                       <span className="text-[10px] opacity-75">
@@ -681,7 +696,7 @@ export default function NewProjectPage() {
               {/* Option 3: Jumlah Klip */}
               <div className="space-y-2">
                 <label className="text-xs font-mono font-semibold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-primary text-[16px]">movie_filter</span>
+                  <Film className="w-4 h-4 text-primary" />
                   Jumlah Klip
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -709,7 +724,7 @@ export default function NewProjectPage() {
               {/* Option 4: Bahasa */}
               <div className="space-y-2">
                 <label className="text-xs font-mono font-semibold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-primary text-[16px]">translate</span>
+                  <Languages className="w-4 h-4 text-primary" />
                   Bahasa Video
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -737,7 +752,7 @@ export default function NewProjectPage() {
               <div className="space-y-2 md:col-span-2 bg-surface-container-low/50 p-3 rounded-lg border border-surface-container-high/60">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-mono font-semibold text-on-surface uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-primary text-[16px]">psychology</span>
+                    <Brain className="w-4 h-4 text-primary" />
                     AI Analisis Klip
                   </label>
                   <span className="text-[10px] text-outline">
@@ -786,7 +801,7 @@ export default function NewProjectPage() {
 
             {submitError && (
               <div className="p-3 bg-error-container/40 border border-error/40 rounded-lg text-error text-xs flex items-center gap-2">
-                <span className="material-symbols-outlined text-[16px]">error</span>
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{submitError}</span>
               </div>
             )}
@@ -811,7 +826,7 @@ export default function NewProjectPage() {
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+                    <Sparkles className="w-5 h-5" />
                     <span>Generate Klip</span>
                   </>
                 )}
@@ -824,7 +839,7 @@ export default function NewProjectPage() {
         <div className="w-full max-w-4xl px-6 mt-12 grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 rounded-xl bg-surface-container-low border border-surface-container-high/40 flex flex-col gap-2">
             <span className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">psychology</span>
+              <Brain className="w-4 h-4" />
             </span>
             <h3 className="font-sans font-bold text-sm text-on-surface">Analisis Hook 3 Detik</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed">
@@ -834,7 +849,7 @@ export default function NewProjectPage() {
 
           <div className="p-4 rounded-xl bg-surface-container-low border border-surface-container-high/40 flex flex-col gap-2">
             <span className="w-8 h-8 rounded-lg bg-secondary/10 text-secondary flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">subtitles</span>
+              <Subtitles className="w-4 h-4" />
             </span>
             <h3 className="font-sans font-bold text-sm text-on-surface">Auto-Caption Karaoke</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed">
@@ -844,7 +859,7 @@ export default function NewProjectPage() {
 
           <div className="p-4 rounded-xl bg-surface-container-low border border-surface-container-high/40 flex flex-col gap-2">
             <span className="w-8 h-8 rounded-lg bg-tertiary/10 text-tertiary flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">crop</span>
+              <Crop className="w-4 h-4" />
             </span>
             <h3 className="font-sans font-bold text-sm text-on-surface">CapCut-Style Editor</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed">
@@ -860,14 +875,14 @@ export default function NewProjectPage() {
               <h2 className="font-mono text-xs font-bold text-on-surface uppercase tracking-wider">
                 Proyek Terbaru
               </h2>
-              <a href="/projects" className="text-xs font-mono text-primary hover:underline">
+              <Link href="/projects" className="text-xs font-mono text-primary hover:underline">
                 Lihat Semua &rarr;
-              </a>
+              </Link>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
               {recentProjects.map((proj) => (
-                <a
+                <Link
                   key={proj.id}
                   href={proj.status === 'ready' ? `/projects/${proj.id}` : `/projects/${proj.id}/processing`}
                   className="group p-2.5 rounded-lg bg-surface-container-low hover:bg-surface-container border border-surface-container-high/60 transition-all flex flex-col justify-between"
@@ -881,7 +896,7 @@ export default function NewProjectPage() {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-outline">
-                        <span className="material-symbols-outlined text-[24px]">movie</span>
+                        <Film className="w-6 h-6" />
                       </div>
                     )}
                     <span className={`absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
@@ -901,7 +916,7 @@ export default function NewProjectPage() {
                   <span className="text-[10px] font-mono text-outline mt-1 block">
                     {proj.duration_sec ? formatDuration(proj.duration_sec) : '-'} • {proj.clip_duration}s
                   </span>
-                </a>
+                </Link>
               ))}
             </div>
           </div>

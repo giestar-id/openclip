@@ -7,12 +7,27 @@ import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { Project, Clip } from '@/lib/types';
 import { formatDuration } from '@/lib/captions';
+import {
+  Download,
+  Mic,
+  Brain,
+  Scissors,
+  Loader2,
+  AlertCircle,
+  AlertTriangle,
+  Film,
+  RotateCw,
+  CheckCircle2,
+  ArrowRight,
+  Terminal,
+  Trash2,
+} from 'lucide-react';
 
 const STAGES = [
-  { key: 'downloading', label: 'Download', desc: 'Mengunduh video sumber & metadata yt-dlp', icon: 'download' },
-  { key: 'transcribing', label: 'Transcribe', desc: 'Ekstraksi vokal & transkripsi kata Whisper', icon: 'record_voice_over' },
-  { key: 'analyzing', label: 'Analyze AI', desc: 'Analisis hook, alur, & potensi konten', icon: 'psychology' },
-  { key: 'cutting', label: 'Cut Preview', desc: 'Pembuatan klip 540p, thumbnail & waveform peaks', icon: 'content_cut' },
+  { key: 'downloading', label: 'Download', desc: 'Mengunduh video sumber & metadata yt-dlp', icon: Download },
+  { key: 'transcribing', label: 'Transcribe', desc: 'Ekstraksi vokal & transkripsi kata Whisper', icon: Mic },
+  { key: 'analyzing', label: 'Analyze AI', desc: 'Analisis hook, alur, & potensi konten', icon: Brain },
+  { key: 'cutting', label: 'Cut Preview', desc: 'Pembuatan klip 540p, thumbnail & waveform peaks', icon: Scissors },
 ];
 
 function ProcessingContent() {
@@ -131,14 +146,12 @@ function ProcessingContent() {
       <main className="pl-16 pt-20 sm:pt-24 pb-16 w-full flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-4">
         {loading ? (
           <div className="flex flex-col items-center gap-3">
-            <span className="material-symbols-outlined text-primary text-[36px] animate-spin">
-              progress_activity
-            </span>
+            <Loader2 className="w-9 h-9 text-primary animate-spin" />
             <span className="font-label-md text-on-surface-variant">Memuat data proyek #{projectId}...</span>
           </div>
         ) : error && !project ? (
           <div className="max-w-md w-full bg-surface-container-low p-6 rounded-xl border border-error/30 text-center flex flex-col items-center gap-4">
-            <span className="material-symbols-outlined text-error text-[48px]">error</span>
+            <AlertCircle className="w-12 h-12 text-error" />
             <h2 className="font-headline-md text-on-surface">Kesalahan Sistem</h2>
             <p className="font-body-md text-on-surface-variant">{error}</p>
             <Link
@@ -160,7 +173,7 @@ function ProcessingContent() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span className="material-symbols-outlined text-outline text-[32px]">movie</span>
+                  <Film className="w-8 h-8 text-outline/50" />
                 )}
                 {project?.duration_sec && (
                   <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-surface-container-lowest/90 font-label-sm text-label-sm text-on-surface font-mono">
@@ -197,13 +210,11 @@ function ProcessingContent() {
                 <div className="flex items-center gap-3">
                   {project?.status === 'failed' ? (
                     <div className="w-10 h-10 rounded-full bg-error/20 flex items-center justify-center text-error">
-                      <span className="material-symbols-outlined text-[24px]">warning</span>
+                      <AlertTriangle className="w-5 h-5 text-error" />
                     </div>
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary relative">
-                      <span className="material-symbols-outlined text-[24px] animate-spin">
-                        sync
-                      </span>
+                      <Loader2 className="w-5 h-5 animate-spin" />
                     </div>
                   )}
                   <div>
@@ -245,6 +256,7 @@ function ProcessingContent() {
                   const isDone = currentStageIndex > idx;
                   const isCurrent = currentStageIndex === idx && project?.status !== 'failed';
                   const isPending = currentStageIndex < idx;
+                  const StepIcon = isDone ? CheckCircle2 : s.icon;
 
                   return (
                     <div
@@ -258,17 +270,15 @@ function ProcessingContent() {
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span
-                          className={`material-symbols-outlined text-[20px] ${
+                        <StepIcon
+                          className={`w-5 h-5 ${
                             isCurrent
                               ? 'text-primary animate-pulse'
                               : isDone
                               ? 'text-secondary'
                               : 'text-outline'
                           }`}
-                        >
-                          {isDone ? 'check_circle' : s.icon}
-                        </span>
+                        />
                         <span className="font-label-sm text-[10px] text-outline font-mono">
                           0{idx + 1}
                         </span>
@@ -290,9 +300,7 @@ function ProcessingContent() {
               {project?.status === 'failed' && (
                 <div className="p-4 rounded-lg bg-error-container/20 border border-error/40 flex flex-col gap-3">
                   <div className="flex items-start gap-2 text-error">
-                    <span className="material-symbols-outlined text-[20px] shrink-0 mt-0.5">
-                      error
-                    </span>
+                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                     <div className="text-sm font-mono break-all">
                       {project.error || 'Terjadi kesalahan saat mengeksekusi pipeline worker.'}
                     </div>
@@ -303,7 +311,7 @@ function ProcessingContent() {
                       disabled={isRetrying}
                       className="px-4 py-2 rounded bg-primary text-on-primary font-label-md hover:bg-primary-container transition-colors flex items-center gap-2"
                     >
-                      <span className="material-symbols-outlined text-[16px]">refresh</span>
+                      <RotateCw className={`w-4 h-4 ${isRetrying ? 'animate-spin' : ''}`} />
                       {isRetrying ? 'Merestart...' : 'Coba Lagi (Retry)'}
                     </button>
                     <Link
@@ -335,7 +343,7 @@ function ProcessingContent() {
                     className="px-4 py-2 rounded bg-secondary text-on-secondary font-label-md hover:bg-secondary-fixed transition-colors flex items-center gap-1.5 shrink-0"
                   >
                     <span>Buka Editor</span>
-                    <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                    <ArrowRight className="w-4 h-4" />
                   </Link>
                 </div>
               )}
@@ -343,8 +351,8 @@ function ProcessingContent() {
 
             {/* Bottom Actions */}
             <div className="flex items-center justify-between text-outline text-xs px-2">
-              <span className="flex items-center gap-1 font-mono">
-                <span className="material-symbols-outlined text-[14px]">terminal</span>
+              <span className="flex items-center gap-1.5 font-mono">
+                <Terminal className="w-3.5 h-3.5" />
                 Auto-refreshing status polling: 1500ms
               </span>
               <button
@@ -352,7 +360,7 @@ function ProcessingContent() {
                 disabled={isDeleting}
                 className="hover:text-error transition-colors flex items-center gap-1 cursor-pointer font-label-sm"
               >
-                <span className="material-symbols-outlined text-[14px]">delete</span>
+                <Trash2 className="w-3.5 h-3.5" />
                 {isDeleting ? 'Membatalkan...' : 'Batalkan Proyek'}
               </button>
             </div>
@@ -368,9 +376,7 @@ export default function ProcessingPage() {
     <Suspense
       fallback={
         <div className="min-h-screen bg-background text-on-surface flex flex-col items-center justify-center gap-3">
-          <span className="material-symbols-outlined text-primary text-[36px] animate-spin">
-            progress_activity
-          </span>
+          <Loader2 className="w-9 h-9 text-primary animate-spin" />
           <span className="font-label-md text-on-surface-variant">Memuat status proyek...</span>
         </div>
       }

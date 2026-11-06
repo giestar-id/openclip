@@ -6,6 +6,18 @@ import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { Project } from '@/lib/types';
 import { formatDuration } from '@/lib/captions';
+import {
+  Plus,
+  Search,
+  Loader2,
+  Film,
+  RotateCw,
+  Trash2,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+} from 'lucide-react';
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -101,7 +113,7 @@ export default function ProjectsPage() {
             href="/"
             className="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-xs font-semibold hover:bg-primary-container transition-colors flex items-center gap-1.5 shadow"
           >
-            <span className="material-symbols-outlined text-[18px]">add</span>
+            <Plus className="w-4 h-4" />
             Buat Proyek Baru
           </Link>
         </div>
@@ -110,9 +122,7 @@ export default function ProjectsPage() {
         <div className="bg-surface-container-low p-3 rounded-xl border border-surface-container-highest/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md">
           {/* Search Input */}
           <div className="relative w-full sm:w-80">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[16px]">
-              search
-            </span>
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
             <input
               type="text"
               placeholder="Cari judul atau link video..."
@@ -161,14 +171,12 @@ export default function ProjectsPage() {
         {/* Projects Grid / List */}
         {loading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-3">
-            <span className="material-symbols-outlined text-primary text-[36px] animate-spin">
-              progress_activity
-            </span>
+            <Loader2 className="w-9 h-9 text-primary animate-spin" />
             <span className="font-label-md text-xs text-outline">Memuat daftar proyek...</span>
           </div>
         ) : filteredProjects.length === 0 ? (
           <div className="bg-surface-container-low p-12 rounded-xl border border-outline-variant/20 text-center flex flex-col items-center gap-3">
-            <span className="material-symbols-outlined text-outline text-[48px]">movie_off</span>
+            <Film className="w-12 h-12 text-outline/40" />
             <h3 className="font-headline-sm text-on-surface font-semibold">Tidak ada proyek ditemukan</h3>
             <p className="font-body-sm text-outline text-xs max-w-sm">
               Mulai potong video panjang pertama Anda menjadi klip pendek terbaik sekarang.
@@ -207,7 +215,7 @@ export default function ProjectsPage() {
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-outline">
-                          <span className="material-symbols-outlined text-[36px]">movie</span>
+                          <Film className="w-9 h-9 text-outline/50" />
                         </div>
                       )}
 
@@ -219,7 +227,7 @@ export default function ProjectsPage() {
                           </span>
                         ) : isProcessing ? (
                           <span className="px-2 py-0.5 rounded-full bg-primary/90 text-on-primary font-mono text-[10px] font-bold flex items-center gap-1 shadow">
-                            <span className="material-symbols-outlined text-[10px] animate-spin">sync</span>
+                            <Loader2 className="w-3 h-3 animate-spin" />
                             {p.status} ({p.progress ?? (p as any).progress_percent ?? 0}%)
                           </span>
                         ) : (
@@ -281,7 +289,7 @@ export default function ProjectsPage() {
                           onClick={() => handleRetry(p.id)}
                           className="px-2 py-1 rounded bg-surface-container hover:bg-surface-bright text-primary font-semibold text-[11px] flex items-center gap-1"
                         >
-                          <span className="material-symbols-outlined text-[12px]">refresh</span>
+                          <RotateCw className="w-3 h-3" />
                           Coba Lagi
                         </button>
                       ) : (
@@ -299,7 +307,7 @@ export default function ProjectsPage() {
                         className="p-1 rounded text-outline hover:text-error hover:bg-surface-container transition-colors"
                         title="Hapus proyek"
                       >
-                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

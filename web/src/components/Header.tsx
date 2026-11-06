@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { Scissors, Film, Undo2, Redo2, Download } from 'lucide-react';
 
 interface HeaderProps {
@@ -30,14 +31,14 @@ export function Header({
       <div className="h-full w-full pl-2 pr-[18px] flex items-center justify-between gap-4">
         {/* Left: Brand / App Name only */}
         <div className="flex items-center gap-6 shrink-0">
-          <a href="/" className="flex items-center gap-2.5 group">
+          <Link href="/" className="flex items-center gap-2.5 group">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center group-hover:scale-105 transition-transform text-on-primary">
               <Scissors className="w-4 h-4" />
             </div>
             <span className="font-sans font-bold text-base tracking-tight text-on-surface">
               OpenClip
             </span>
-          </a>
+          </Link>
         </div>
 
         {/* Center: Active Project Title & Undo/Redo (when inside editor) */}
