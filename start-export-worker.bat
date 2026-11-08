@@ -5,6 +5,7 @@ title OpenClip - Dedicated Export Worker
 echo ============================================================
 echo      Menjalankan Dedicated Export Worker ^(Khusus Ekspor^)
 echo ============================================================
+if exist "%~dp0tools\node" set "PATH=%~dp0tools\node;!PATH!"
 cd /d "%~dp0worker"
 
 set "HAS_UV=0"

@@ -243,10 +243,10 @@ if %errorlevel% equ 0 (
 )
 
 echo [1/2] Menyalakan Web Server Next.js (Port 3000)...
-start "OpenClip Web Server (Port 3000)" cmd /k "title OpenClip Web Server (Port 3000) && cd /d ""%WEB_DIR%"" && npm run dev"
+start "OpenClip Web Server (Port 3000)" cmd /k "title OpenClip Web Server (Port 3000) && set ""PATH=%TOOLS_DIR%\node;!PATH!"" && cd /d ""%WEB_DIR%"" && npm run dev"
 
 echo [2/2] Menyalakan OpenClip AI Worker (Dual Engine)...
-start "OpenClip AI Worker (Dual Engine)" cmd /k "title OpenClip AI Worker (Dual Engine) && cd /d ""%WORKER_DIR%"" && !WORKER_CMD!"
+start "OpenClip AI Worker (Dual Engine)" cmd /k "title OpenClip AI Worker (Dual Engine) && set ""PATH=%TOOLS_DIR%\node;!PATH!"" && cd /d ""%WORKER_DIR%"" && !WORKER_CMD!"
 
 echo.
 echo Menunggu server siap (3 detik) dan membuka browser...

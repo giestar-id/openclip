@@ -5,6 +5,7 @@ title OpenClip - Dual Worker Daemon
 echo ============================================================
 echo      Menjalankan OpenClip Dual Worker ^(Paralel^)
 echo ============================================================
+if exist "%~dp0tools\node" set "PATH=%~dp0tools\node;!PATH!"
 cd /d "%~dp0worker"
 
 set "HAS_UV=0"
