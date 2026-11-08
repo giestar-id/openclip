@@ -12,9 +12,10 @@ set "BASE_DIR=%~dp0"
 set "WEB_DIR=%BASE_DIR%web"
 set "WORKER_DIR=%BASE_DIR%worker"
 set "STORAGE_DIR=%BASE_DIR%storage"
+set "TOOLS_DIR=%BASE_DIR%tools"
 
-:: Tambahkan path umum tool Python dan uv ke PATH sesi ini
-set "PATH=%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;%LOCALAPPDATA%\hermes\bin;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python310;C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;%PATH%"
+:: Tambahkan path umum tool Python, Node.js dan uv ke PATH sesi ini
+set "PATH=%TOOLS_DIR%\node;%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;%LOCALAPPDATA%\hermes\bin;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python310;C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;%PATH%"
 
 set "INSTALL_ONLY=0"
 if "%~1"=="--install-only" set "INSTALL_ONLY=1"
@@ -48,7 +49,7 @@ echo       MEMERIKSA DAN MENYIAPKAN DEPENDENSI OPENCLIP
 echo ============================================================
 echo.
 
-:: A. Periksa / Pasang Node.js & npm
+:: A. Periksa / Pasang Node.js & npm secara otomatis
 echo [1/6] Memeriksa Node.js dan npm...
 where node >nul 2>nul
 if %errorlevel% equ 0 goto :NODE_OK
@@ -56,7 +57,7 @@ if %errorlevel% equ 0 goto :NODE_OK
 echo [INFO] Node.js belum terdeteksi di komputer ini.
 where winget >nul 2>nul
 if %errorlevel% equ 0 (
-    echo Mencoba memasang Node.js LTS otomatis via winget...
+    echo Mencoba memasang Node.js LTS via winget...
     winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
     set "PATH=C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;!PATH!"
 )
@@ -64,12 +65,20 @@ if %errorlevel% equ 0 (
 where node >nul 2>nul
 if %errorlevel% equ 0 goto :NODE_OK
 
+:: Fallback: Unduh Node.js LTS portable mandiri (Zero-Admin / Tanpa install manual)
+echo [INFO] Mengunduh Node.js LTS portable otomatis (bebas hak administrator)...
+powershell -ExecutionPolicy ByPass -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $dest = '%TOOLS_DIR%\node'; if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Force -Path $dest | Out-Null }; $zip = Join-Path $env:TEMP 'node-lts.zip'; Write-Host 'Mengunduh Node.js LTS (~35 MB)...'; Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip' -OutFile $zip; Write-Host 'Mengekstrak paket Node.js...'; Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force; $src = Join-Path $env:TEMP 'node-v20.18.0-win-x64'; Copy-Item -Path \"$src\*\" -Destination $dest -Recurse -Force; Remove-Item $zip -Force -ErrorAction SilentlyContinue; Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue; Write-Host '[OK] Node.js portable siap!'"
+set "PATH=%TOOLS_DIR%\node;!PATH!"
+
+where node >nul 2>nul
+if %errorlevel% equ 0 goto :NODE_OK
+
 echo.
 echo ============================================================
-echo [ERROR] Node.js belum terpasang!
-echo Silakan unduh dan pasang Node.js (LTS v18 ke atas) dari:
-echo https://nodejs.org/
-echo Setelah selesai, jalankan kembali start.bat
+echo [PERINGATAN] Gagal mengunduh Node.js secara otomatis.
+echo Membuka halaman unduh resmi di browser...
+start https://nodejs.org/
+echo Silakan pasang Node.js LTS lalu jalankan kembali start.bat
 echo ============================================================
 pause
 exit /b 1

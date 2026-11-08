@@ -15,9 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEB_DIR="$SCRIPT_DIR/web"
 WORKER_DIR="$SCRIPT_DIR/worker"
 STORAGE_DIR="$SCRIPT_DIR/storage"
+TOOLS_DIR="$SCRIPT_DIR/tools"
 
-# Tambahkan path umum binary di macOS (Homebrew M1/M2/M3/M4 & Intel, uv, cargo)
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+# Tambahkan path umum binary di macOS (Homebrew M1/M2/M3/M4 & Intel, tools/node, uv, cargo)
+export PATH="$TOOLS_DIR/node/bin:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 [ -f "$HOME/.local/bin/env" ] && source "$HOME/.local/bin/env" 2>/dev/null || true
 
 INSTALL_ONLY=0
@@ -50,18 +51,55 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     echo "============================================================"
     echo ""
 
-    # A. Periksa / Pasang Node.js & npm
+    # A. Periksa / Pasang Node.js & npm secara otomatis
     echo "[1/6] Memeriksa Node.js dan npm..."
     if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-        echo "[INFO] Node.js belum terpasang."
+        echo "[INFO] Node.js belum terpasang di sistem."
+        
+        # Opsi 1: Pasang via Homebrew jika ada
         if command -v brew >/dev/null 2>&1; then
-            echo "Memasang Node.js via Homebrew..."
-            brew install node
-        else
+            echo "Mencoba memasang Node.js via Homebrew..."
+            brew install node || true
+        fi
+
+        # Opsi 2: Unduh standalone portable Node.js LTS jika brew belum ada (Zero-Admin)
+        if ! command -v node >/dev/null 2>&1; then
+            echo "[INFO] Mengunduh Node.js LTS mandiri untuk macOS/Linux..."
+            NODE_VER="v20.18.0"
+            OS_TYPE="$(uname -s)"
+            ARCH_TYPE="$(uname -m)"
+            
+            if [ "$OS_TYPE" = "Darwin" ]; then
+                if [ "$ARCH_TYPE" = "arm64" ]; then
+                    NODE_PKG="node-${NODE_VER}-darwin-arm64.tar.gz"
+                else
+                    NODE_PKG="node-${NODE_VER}-darwin-x64.tar.gz"
+                fi
+            else
+                if [ "$ARCH_TYPE" = "aarch64" ] || [ "$ARCH_TYPE" = "arm64" ]; then
+                    NODE_PKG="node-${NODE_VER}-linux-arm64.tar.gz"
+                else
+                    NODE_PKG="node-${NODE_VER}-linux-x64.tar.gz"
+                fi
+            fi
+
+            NODE_URL="https://nodejs.org/dist/${NODE_VER}/${NODE_PKG}"
+            NODE_DEST="$TOOLS_DIR/node"
+            mkdir -p "$NODE_DEST"
+            echo "Mengunduh dan mengekstrak $NODE_PKG (~40 MB)..."
+            curl -fsSL "$NODE_URL" | tar -xz -C "$NODE_DEST" --strip-components=1 2>/dev/null || true
+            export PATH="$NODE_DEST/bin:$PATH"
+        fi
+
+        if ! command -v node >/dev/null 2>&1; then
             echo "============================================================"
-            echo "[ERROR] Node.js (LTS v18 ke atas) belum terpasang!"
-            echo "Silakan unduh dari: https://nodejs.org/"
-            echo "Atau pasang Homebrew lalu jalankan: brew install node"
+            echo "[PERINGATAN] Gagal mengunduh Node.js secara otomatis."
+            echo "Membuka halaman unduh resmi di browser..."
+            if [ "$(uname -s)" = "Darwin" ]; then
+                open "https://nodejs.org/" 2>/dev/null || true
+            fi
+            echo "Silakan unduh dan pasang Node.js LTS dari: https://nodejs.org/"
+            echo "Setelah selesai, jalankan kembali ./start.sh"
             echo "============================================================"
             exit 1
         fi
@@ -89,8 +127,7 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     echo ""
     echo "[3/6] Memeriksa Python..."
     if command -v uv >/dev/null 2>&1; then
-        # uv dapat mengunduh dan memasang Python 3.12 mandiri untuk macOS (Apple Silicon / Intel)
-        echo "Menyiapkan runtime Python 3.12 via uv..."
+        echo "Menyiapkan runtime Python 3.12 mandiri via uv..."
         uv python install 3.12 || true
         echo "[OK] Runtime Python siap via uv."
     elif command -v python3 >/dev/null 2>&1; then

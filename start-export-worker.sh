@@ -13,3 +13,4 @@ elif [ -f ".venv/bin/python" ]; then
 else
     exec python3 main.py --mode export
 fi
+

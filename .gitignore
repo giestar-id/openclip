@@ -70,6 +70,8 @@ worker/storage/
 # 5. Web Frontend (Next.js & Node.js)
 web/node_modules/
 node_modules/
+tools/
+bin/
 web/.next/
 .next/
 web/out/
