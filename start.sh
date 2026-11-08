@@ -147,10 +147,10 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
         fi
     fi
 
-    # D. Setup Direktori Storage dan File .env
+    # D. Setup Direktori Storage dan File .env (Defensif)
     echo ""
     echo "[4/6] Menyiapkan direktori storage dan konfigurasi environment..."
-    mkdir -p "$STORAGE_DIR/projects" "$STORAGE_DIR/exports" "$STORAGE_DIR/models"
+    mkdir -p "$STORAGE_DIR/projects" "$STORAGE_DIR/exports" "$STORAGE_DIR/models" "$STORAGE_DIR/models/face" "$SCRIPT_DIR/database" "$WEB_DIR/public/fonts"
 
     if [ ! -f "$WORKER_DIR/.env" ] && [ -f "$WORKER_DIR/.env.example" ]; then
         cp "$WORKER_DIR/.env.example" "$WORKER_DIR/.env"
@@ -166,11 +166,11 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     echo "[5/6] Menginstall dependensi Web Frontend (npm install)..."
     cd "$WEB_DIR"
     if [ ! -d "$WEB_DIR/node_modules" ]; then
-        npm install --no-audit --no-fund
+        npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
     else
         if ! node -e "try { require('better-sqlite3'); } catch(e) { process.exit(1); }" >/dev/null 2>&1; then
-            echo "Kompilasi ulang better-sqlite3..."
-            npm rebuild better-sqlite3
+            echo "Memperbarui native better-sqlite3..."
+            npm rebuild better-sqlite3 2>/dev/null || npm install better-sqlite3@12.11.1 --save-exact --no-audit
         fi
     fi
 
@@ -179,7 +179,7 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     echo "[6/6] Menginstall dependensi AI Worker (Python)..."
     cd "$WORKER_DIR"
     if command -v uv >/dev/null 2>&1; then
-        uv sync
+        uv sync || (uv sync --offline 2>/dev/null || uv sync)
     else
         [ ! -d ".venv" ] && python3 -m venv .venv
         .venv/bin/pip install --upgrade pip
@@ -190,7 +190,7 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
         fi
     fi
 
-    # Unduh Font Subtitle jika belum ada
+    # Unduh Font Subtitle jika belum ada (Non-Fatal)
     if command -v uv >/dev/null 2>&1; then
         uv run python scripts/download_fonts.py >/dev/null 2>&1 || true
     else
@@ -249,18 +249,27 @@ echo ""
 echo "Menunggu server siap (3 detik) dan membuka browser..."
 sleep 3
 
+# Deteksi jika port 3000 sedang dipakai
+APP_PORT=3000
+if command -v lsof >/dev/null 2>&1; then
+    if lsof -i :3000 >/dev/null 2>&1; then
+        echo "[INFO] Port 3000 sedang dipakai aplikasi lain. Beralih ke port 3001..."
+        APP_PORT=3001
+    fi
+fi
+
 # Buka browser otomatis
 if [ "$(uname -s)" = "Darwin" ]; then
     # macOS / MacBook
-    open "http://localhost:3000" 2>/dev/null || true
+    open "http://localhost:${APP_PORT}" 2>/dev/null || true
 elif command -v xdg-open >/dev/null 2>&1; then
     # Linux desktop
-    xdg-open "http://localhost:3000" 2>/dev/null || true
+    xdg-open "http://localhost:${APP_PORT}" 2>/dev/null || true
 fi
 
 echo ""
 echo "============================================================"
-echo "  OpenClip Berjalan di: http://localhost:3000"
+echo "  OpenClip Berjalan di: http://localhost:${APP_PORT}"
 echo "  - Web Server PID  : $WEB_PID"
 echo "  - AI Worker PID   : $WORKER_PID"
 echo ""

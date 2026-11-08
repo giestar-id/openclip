@@ -7,7 +7,7 @@ echo             OPENCLIP - ONE-CLICK LAUNCHER
 echo ============================================================
 echo.
 
-:: 1. Deteksi direktori proyek
+:: 1. Deteksi direktori proyek (Aman terhadap spasi & karakter khusus)
 set "BASE_DIR=%~dp0"
 set "WEB_DIR=%BASE_DIR%web"
 set "WORKER_DIR=%BASE_DIR%worker"
@@ -55,6 +55,33 @@ where node >nul 2>nul
 if %errorlevel% equ 0 goto :NODE_OK
 
 echo [INFO] Node.js belum terdeteksi di komputer ini.
+
+:: Skenario A-1: Coba pasang otomatis via curl.exe + tar.exe (Cepat & Tanpa Hak Admin)
+where curl.exe >nul 2>nul
+if %errorlevel% equ 0 (
+    echo Mengunduh Node.js LTS portable (~35 MB) via curl...
+    if not exist "%TOOLS_DIR%\node" mkdir "%TOOLS_DIR%\node"
+    curl.exe -fL --progress-bar -o "%TEMP%\node-lts.zip" "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip" 2>nul
+    if exist "%TEMP%\node-lts.zip" (
+        where tar.exe >nul 2>nul
+        if !errorlevel! equ 0 (
+            tar.exe -xf "%TEMP%\node-lts.zip" -C "%TEMP%" 2>nul
+        ) else (
+            powershell -ExecutionPolicy ByPass -NoProfile -Command "Expand-Archive -Path '%TEMP%\node-lts.zip' -DestinationPath '%TEMP%' -Force" 2>nul
+        )
+        if exist "%TEMP%\node-v20.18.0-win-x64" (
+            xcopy /E /I /Y /Q "%TEMP%\node-v20.18.0-win-x64\*" "%TOOLS_DIR%\node\" >nul 2>nul
+            del /F /Q "%TEMP%\node-lts.zip" >nul 2>nul
+            rmdir /S /Q "%TEMP%\node-v20.18.0-win-x64" >nul 2>nul
+        )
+    )
+    set "PATH=%TOOLS_DIR%\node;!PATH!"
+)
+
+where node >nul 2>nul
+if %errorlevel% equ 0 goto :NODE_OK
+
+:: Skenario A-2: Coba pasang otomatis via winget jika tersedia
 where winget >nul 2>nul
 if %errorlevel% equ 0 (
     echo Mencoba memasang Node.js LTS via winget...
@@ -65,9 +92,9 @@ if %errorlevel% equ 0 (
 where node >nul 2>nul
 if %errorlevel% equ 0 goto :NODE_OK
 
-:: Fallback: Unduh Node.js LTS portable mandiri (Zero-Admin / Tanpa install manual)
-echo [INFO] Mengunduh Node.js LTS portable otomatis (bebas hak administrator)...
-powershell -ExecutionPolicy ByPass -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $dest = '%TOOLS_DIR%\node'; if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Force -Path $dest | Out-Null }; $zip = Join-Path $env:TEMP 'node-lts.zip'; Write-Host 'Mengunduh Node.js LTS (~35 MB)...'; Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip' -OutFile $zip; Write-Host 'Mengekstrak paket Node.js...'; Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force; $src = Join-Path $env:TEMP 'node-v20.18.0-win-x64'; Copy-Item -Path \"$src\*\" -Destination $dest -Recurse -Force; Remove-Item $zip -Force -ErrorAction SilentlyContinue; Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue; Write-Host '[OK] Node.js portable siap!'"
+:: Skenario A-3: Coba unduh via PowerShell
+echo [INFO] Mengunduh Node.js via PowerShell...
+powershell -ExecutionPolicy ByPass -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $dest = '%TOOLS_DIR%\node'; if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Force -Path $dest | Out-Null }; $zip = Join-Path $env:TEMP 'node-lts.zip'; Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip' -OutFile $zip -UseBasicParsing; Expand-Archive -Path $zip -DestinationPath $env:TEMP -Force; $src = Join-Path $env:TEMP 'node-v20.18.0-win-x64'; Copy-Item -Path \"$src\*\" -Destination $dest -Recurse -Force; Remove-Item $zip -Force -ErrorAction SilentlyContinue; Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue;"
 set "PATH=%TOOLS_DIR%\node;!PATH!"
 
 where node >nul 2>nul
@@ -81,7 +108,7 @@ echo Membuka halaman unduh resmi di browser...
 start https://nodejs.org/
 echo.
 echo 1. Silakan unduh dan pasang Node.js LTS dari browser yang terbuka.
-echo 2. Setelah instalasi selesai, tekan Enter di jendela ini
+echo 2. Setelah instalasi selesai, tekan [Enter] di jendela ini
 echo    untuk langsung melanjutkan setup OpenClip secara otomatis...
 echo ============================================================
 set /p "DUMMY=Tekan [Enter] untuk melanjutkan: "
@@ -109,7 +136,12 @@ where uv >nul 2>nul
 if %errorlevel% equ 0 goto :UV_OK
 
 echo [INFO] uv belum terpasang. Menginstall uv secara otomatis...
-powershell -ExecutionPolicy ByPass -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://astral.sh/uv/install.ps1 | iex"
+where curl.exe >nul 2>nul
+if %errorlevel% equ 0 (
+    curl.exe -LsSf https://astral.sh/uv/install.ps1 2>nul | powershell -ExecutionPolicy ByPass -NoProfile -Command - 2>nul
+) else (
+    powershell -ExecutionPolicy ByPass -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://astral.sh/uv/install.ps1 | iex" 2>nul
+)
 set "PATH=%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;!PATH!"
 
 where uv >nul 2>nul
@@ -159,13 +191,16 @@ exit /b 1
 
 :PYTHON_OK
 
-:: D. Setup Direktori Storage dan File .env
+:: D. Setup Direktori Storage dan File .env (Defensif / Anti-Crash)
 echo.
 echo [4/6] Menyiapkan folder storage dan konfigurasi environment...
 if not exist "%STORAGE_DIR%" mkdir "%STORAGE_DIR%"
 if not exist "%STORAGE_DIR%\projects" mkdir "%STORAGE_DIR%\projects"
 if not exist "%STORAGE_DIR%\exports" mkdir "%STORAGE_DIR%\exports"
 if not exist "%STORAGE_DIR%\models" mkdir "%STORAGE_DIR%\models"
+if not exist "%STORAGE_DIR%\models\face" mkdir "%STORAGE_DIR%\models\face"
+if not exist "%BASE_DIR%database" mkdir "%BASE_DIR%database"
+if not exist "%WEB_DIR%\public\fonts" mkdir "%WEB_DIR%\public\fonts"
 
 if not exist "%WORKER_DIR%\.env" (
     if exist "%WORKER_DIR%\.env.example" (
@@ -186,11 +221,20 @@ echo [5/6] Menginstall dependensi Web Frontend (npm install)...
 cd /d "%WEB_DIR%"
 if not exist "%WEB_DIR%\node_modules" (
     call npm install --no-audit --no-fund
+    if !errorlevel! neq 0 (
+        echo [PERINGATAN] npm install pertama gagal. Mencoba kembali dengan parameter bersih...
+        call npm install --no-audit --no-fund --legacy-peer-deps
+    )
 ) else (
     node -e "try { require('better-sqlite3'); } catch(e) { process.exit(1); }" >nul 2>nul
     if !errorlevel! neq 0 (
         echo Memperbarui paket native better-sqlite3...
-        call npm rebuild better-sqlite3
+        call npm rebuild better-sqlite3 >nul 2>nul
+        node -e "try { require('better-sqlite3'); } catch(e) { process.exit(1); }" >nul 2>nul
+        if !errorlevel! neq 0 (
+            echo Mengunduh precompiled binary better-sqlite3 langsung...
+            call npm install better-sqlite3@12.11.1 --save-exact --no-audit
+        )
     )
 )
 
@@ -200,6 +244,10 @@ echo [6/6] Menginstall dependensi AI Worker (Python)...
 cd /d "%WORKER_DIR%"
 if "!HAS_UV!"=="1" (
     call uv sync
+    if !errorlevel! neq 0 (
+        echo [PERINGATAN] uv sync mengalami kendala. Mencoba ulang...
+        call uv sync --offline 2>nul || call uv sync
+    )
 ) else (
     if not exist ".venv" python -m venv .venv
     call .venv\Scripts\pip install --upgrade pip
@@ -210,7 +258,7 @@ if "!HAS_UV!"=="1" (
     )
 )
 
-:: Unduh Font Subtitle jika belum ada
+:: Unduh Font Subtitle jika belum ada (Non-Fatal jika offline)
 if "!HAS_UV!"=="1" (
     call uv run python scripts/download_fonts.py >nul 2>nul
 ) else (
@@ -240,32 +288,29 @@ if "%INSTALL_ONLY%"=="1" (
 :RUN_APP
 cd /d "%BASE_DIR%"
 
-where uv >nul 2>nul
+:: Periksa apakah port 3000 sedang dipakai aplikasi lain
+set "APP_PORT=3000"
+netstat -ano 2>nul | findstr ":3000 " | findstr "LISTENING" >nul 2>nul
 if %errorlevel% equ 0 (
-    set "WORKER_CMD=uv run python main.py --mode all"
-) else (
-    if exist "%WORKER_DIR%\.venv\Scripts\python.exe" (
-        set "WORKER_CMD=.venv\Scripts\python.exe main.py --mode all"
-    ) else (
-        set "WORKER_CMD=python main.py --mode all"
-    )
+    echo [INFO] Port 3000 sedang digunakan oleh aplikasi lain di komputer ini.
+    echo Next.js otomatis akan berjalan di port 3001.
+    set "APP_PORT=3001"
 )
 
-echo [1/2] Menyalakan Web Server Next.js (Port 3000)...
-start "OpenClip Web Server (Port 3000)" cmd /k "title OpenClip Web Server (Port 3000) && set ""PATH=%TOOLS_DIR%\node;!PATH!"" && cd /d ""%WEB_DIR%"" && npm run dev"
+echo [1/2] Menyalakan Web Server Next.js (Port !APP_PORT!)...
+start "OpenClip Web Server (Port !APP_PORT!)" "%BASE_DIR%start-web.bat"
 
 echo [2/2] Menyalakan OpenClip AI Worker (Dual Engine)...
-start "OpenClip AI Worker (Dual Engine)" cmd /k "title OpenClip AI Worker (Dual Engine) && set ""PATH=%TOOLS_DIR%\node;!PATH!"" && cd /d ""%WORKER_DIR%"" && !WORKER_CMD!"
+start "OpenClip AI Worker (Dual Engine)" "%BASE_DIR%start-worker.bat"
 
 echo.
 echo Menunggu server siap (3 detik) dan membuka browser...
 timeout /t 3 /nobreak >nul
-start http://localhost:3000
+start http://localhost:!APP_PORT!
 
 echo.
 echo ============================================================
-echo   OpenClip Sudah Berjalan Paralel di Jendela Terpisah!
-echo   Aplikasi terbuka di: http://localhost:3000
+echo   OpenClip Berjalan di: http://localhost:!APP_PORT!
 echo.
 echo   - Jendela 1: OpenClip Web Server (Next.js)
 echo   - Jendela 2: OpenClip AI Worker Daemon (Transkrip, Crop dan Export)
