@@ -81,10 +81,10 @@ echo Membuka halaman unduh resmi di browser...
 start https://nodejs.org/
 echo.
 echo 1. Silakan unduh dan pasang Node.js LTS dari browser yang terbuka.
-echo 2. Setelah instalasi selesai, tekan tombol APA SAJA di jendela ini
+echo 2. Setelah instalasi selesai, tekan Enter di jendela ini
 echo    untuk langsung melanjutkan setup OpenClip secara otomatis...
 echo ============================================================
-pause >nul
+set /p "DUMMY=Tekan [Enter] untuk melanjutkan: "
 set "PATH=%TOOLS_DIR%\node;C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;!PATH!"
 where node >nul 2>nul
 if %errorlevel% equ 0 goto :NODE_OK
@@ -98,7 +98,7 @@ for /f "tokens=*" %%v in ('node -v 2^>nul') do echo [OK] Node.js terpasang: %%v
 where npm >nul 2>nul
 if %errorlevel% neq 0 (
     echo [ERROR] npm tidak terdeteksi! Pastikan instalasi Node.js menyertakan npm.
-    pause
+    set /p "DUMMY=Tekan [Enter] untuk menutup jendela: "
     exit /b 1
 )
 
@@ -154,7 +154,7 @@ echo [ERROR] Python tidak terdeteksi!
 echo Silakan unduh Python 3.10 - 3.12 dari: https://www.python.org/
 echo Pastikan centang 'Add Python to PATH' saat instalasi.
 echo ============================================================
-pause
+set /p "DUMMY=Tekan [Enter] untuk menutup jendela: "
 exit /b 1
 
 :PYTHON_OK
