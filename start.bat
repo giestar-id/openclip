@@ -73,15 +73,24 @@ set "PATH=%TOOLS_DIR%\node;!PATH!"
 where node >nul 2>nul
 if %errorlevel% equ 0 goto :NODE_OK
 
+:WAIT_NODE_MANUAL
 echo.
 echo ============================================================
-echo [PERINGATAN] Gagal mengunduh Node.js secara otomatis.
+echo [INFO] Tidak dapat mengunduh Node.js secara otomatis.
 echo Membuka halaman unduh resmi di browser...
 start https://nodejs.org/
-echo Silakan pasang Node.js LTS lalu jalankan kembali start.bat
+echo.
+echo 1. Silakan unduh dan pasang Node.js LTS dari browser yang terbuka.
+echo 2. Setelah instalasi selesai, tekan tombol APA SAJA di jendela ini
+echo    untuk langsung melanjutkan setup OpenClip secara otomatis...
 echo ============================================================
-pause
-exit /b 1
+pause >nul
+set "PATH=%TOOLS_DIR%\node;C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;!PATH!"
+where node >nul 2>nul
+if %errorlevel% equ 0 goto :NODE_OK
+echo.
+echo [PERINGATAN] Node.js masih belum terdeteksi. Silakan selesaikan instalasi terlebih dahulu.
+goto :WAIT_NODE_MANUAL
 
 :NODE_OK
 for /f "tokens=*" %%v in ('node -v 2^>nul') do echo [OK] Node.js terpasang: %%v

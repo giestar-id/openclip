@@ -91,18 +91,23 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
             export PATH="$NODE_DEST/bin:$PATH"
         fi
 
-        if ! command -v node >/dev/null 2>&1; then
+        while ! command -v node >/dev/null 2>&1; do
             echo "============================================================"
-            echo "[PERINGATAN] Gagal mengunduh Node.js secara otomatis."
+            echo "[INFO] Tidak dapat mengunduh Node.js secara otomatis."
             echo "Membuka halaman unduh resmi di browser..."
             if [ "$(uname -s)" = "Darwin" ]; then
                 open "https://nodejs.org/" 2>/dev/null || true
+            elif command -v xdg-open >/dev/null 2>&1; then
+                xdg-open "https://nodejs.org/" 2>/dev/null || true
             fi
-            echo "Silakan unduh dan pasang Node.js LTS dari: https://nodejs.org/"
-            echo "Setelah selesai, jalankan kembali ./start.sh"
+            echo ""
+            echo "1. Silakan unduh dan pasang Node.js LTS dari browser."
+            echo "2. Setelah instalasi selesai, tekan Enter di jendela ini"
+            echo "   untuk langsung melanjutkan setup OpenClip..."
             echo "============================================================"
-            exit 1
-        fi
+            read -r -p "Tekan [Enter] untuk melanjutkan: " _
+            export PATH="$TOOLS_DIR/node/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+        done
     fi
     echo "[OK] Node.js terdeteksi: $(node -v)"
     echo "[OK] npm terdeteksi: v$(npm -v)"
