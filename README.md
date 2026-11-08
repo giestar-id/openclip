@@ -88,53 +88,59 @@ flowchart TD
 
 ---
 
-## 🚀 Panduan Instalasi & Menjalankan (1-Klik)
+## 🚀 Panduan Menjalankan (1-Klik Multiplatform: Windows & macOS / MacBook)
 
-### Prasyarat Sistem
-Pastikan perangkat Anda telah terpasang:
-1. **Node.js**: v18, v20, v22, atau v24 LTS ([Unduh di nodejs.org](https://nodejs.org/))
-2. **Python**: v3.10 - v3.12 ([Unduh di python.org](https://www.python.org/downloads/))  
-   *(Sangat disarankan memasang [uv](https://docs.astral.sh/uv/) untuk kecepatan instalasi maksimal)*
-3. **Database**: Otomatis SQLite (tidak memerlukan instalasi server database eksternal).
-4. **FFmpeg**: Bundled otomatis via `imageio-ffmpeg` (opsional jika FFmpeg sudah ada di sistem PATH).
+OpenClip kini dilengkapi **Unified 1-Click Launcher** cerdas untuk **Windows** dan **macOS / MacBook (Apple Silicon M1/M2/M3/M4 & Intel)** serta Linux.
+
+> **Sistem Otomatis (Zero-Config):**
+> Saat pertama kali dijalankan, sistem otomatis mendeteksi apakah `uv`, `Python`, dan dependensi sudah terpasang. Jika belum, launcher akan **mengunduh dan memasang `uv` serta Python 3.12 mandiri secara otomatis** tanpa perlu hak akses administrator maupun konfigurasi manual!
 
 ---
 
-### Langkah 1: Instalasi Otomatis (1-Klik)
-
-Cukup klik ganda file:
-```text
-install.bat
-```
-Atau jalankan melalui command prompt:
-```cmd
-install.bat
-```
-
-**Apa yang dilakukan oleh `install.bat` secara otomatis?**
-1. Memvalidasi ketersediaan Node.js, npm, Python / uv, dan FFmpeg.
-2. Menyiapkan folder penyimpanan (`storage/projects`, `storage/exports`, `storage/models`).
-3. Membuat file konfigurasi `.env` worker dan `.env.local` web dari template default.
-4. Mengunduh dan memasang seluruh dependensi Next.js serta memvalidasi binary native `better-sqlite3`.
-5. Mengisolasi virtual environment Python dan mengunduh paket worker (`faster-whisper`, `yt-dlp`, `onnxruntime`, `pillow`, dll.).
-6. Mengunduh 8 font TTF lokal untuk subtitle ke folder `web/public/fonts`.
-7. Menjalankan diagnostik mandiri sistem dan inisialisasi tabel database SQLite.
-
----
-
-### Langkah 2: Menjalankan Aplikasi (1-Klik)
+### A. Pengguna Windows: Cukup Jalankan `start.bat`
 
 Cukup klik ganda file:
 ```text
 start.bat
 ```
+Atau jalankan melalui command prompt:
+```cmd
+start.bat
+```
 
-Script akan menyalakan dua layanan secara bersamaan di jendela terpisah:
-- **Jendela 1:** Web Server Next.js (berjalan di `http://localhost:3000`)
-- **Jendela 2:** AI Worker Daemon (menjalankan Project Worker & Export Worker secara paralel)
-- Browser default Anda akan otomatis terbuka ke `http://localhost:3000`.
+**Apa yang terjadi saat `start.bat` dijalankan?**
+1. **Deteksi Otomatis:** Memeriksa ketersediaan Node.js, `uv`, Python, dan dependensi.
+2. **Auto-Install jika Belum Ada:**
+   - Memasang `uv` secara otomatis via PowerShell jika belum ada.
+   - Mengunduh dan memasang Python 3.12 mandiri via `uv python install 3.12` jika Python belum ada.
+   - Menjalankan `npm install` untuk frontend Next.js dan `uv sync` untuk AI Worker.
+   - Mengunduh 8 font TTF lokal dan menginisialisasi database SQLite.
+3. **Langsung Menyalakan Aplikasi:**
+   - Jendela 1: Web Server Next.js (`http://localhost:3000`)
+   - Jendela 2: OpenClip AI Worker Daemon (Project & Export paralel)
+   - Browser default Anda akan otomatis terbuka ke `http://localhost:3000`.
 
-*(Untuk mematikan aplikasi kapan saja, cukup tutup kedua jendela terminal CMD tersebut).*
+*(Jika Anda hanya ingin memasang dependensi tanpa menyalakan server, Anda dapat menjalankan `start.bat --install-only` atau `install.bat`).*
+
+---
+
+### B. Pengguna macOS / MacBook (Apple Silicon & Intel) & Linux
+
+Buka aplikasi **Terminal**, arahkan ke folder OpenClip, lalu jalankan:
+```bash
+chmod +x start.sh
+./start.sh
+```
+*(Atau cukup ketik: `bash start.sh`)*
+
+**Fitur Launcher macOS (`start.sh`):**
+1. **Dukungan Penuh Apple Silicon (M1/M2/M3/M4) & Intel**: Otomatis mendeteksi arsitektur Mac (`arm64` / `x86_64`).
+2. **Auto-Install `uv` & Python 3.12**: Jika Mac Anda belum memiliki Python atau `uv`, script akan memasangnya secara otomatis.
+3. **Auto-Install Node.js**: Terintegrasi dengan Homebrew jika Node.js belum terpasang.
+4. **Paralel Background Engine & Auto-Browser**: Web Server dan AI Worker langsung menyala di latar belakang, dan browser otomatis terbuka dengan perintah bawaan macOS (`open http://localhost:3000`).
+5. **Clean Exit**: Cukup tekan `Ctrl+C` di terminal untuk mematikan Web Server dan AI Worker secara bersih.
+
+*(Jika hanya ingin memasang dependensi di Mac tanpa menyalakan server: `./start.sh --install-only` atau `bash install.sh`).*
 
 ---
 
@@ -162,11 +168,15 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
-## 🛠️ Batch Scripts Tambahan (Khusus Worker)
+## 🛠️ Script Tambahan (Khusus Worker)
 
 Jika Anda ingin menjalankan worker secara terpisah untuk keperluan *debugging* atau server terpisah:
-- **`start-worker.bat`**: Menjalankan worker gabungan (transkripsi + render ekspor).
-- **`start-export-worker.bat`**: Menjalankan worker khusus pemrosesan render ekspor video.
+- **Windows**:
+  - `start-worker.bat`: Menjalankan worker gabungan (transkripsi + render ekspor).
+  - `start-export-worker.bat`: Menjalankan worker khusus pemrosesan render ekspor video.
+- **macOS / MacBook & Linux**:
+  - `./start-worker.sh`: Menjalankan worker gabungan di terminal Unix/Mac.
+  - `./start-export-worker.sh`: Menjalankan worker khusus pemrosesan render ekspor video di terminal Unix/Mac.
 
 ---
 

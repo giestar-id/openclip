@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-title OpenClip - Launcher
+title OpenClip - One-Click Launcher
 
 echo ============================================================
 echo             OPENCLIP - ONE-CLICK LAUNCHER
@@ -11,42 +11,217 @@ echo.
 set "BASE_DIR=%~dp0"
 set "WEB_DIR=%BASE_DIR%web"
 set "WORKER_DIR=%BASE_DIR%worker"
+set "STORAGE_DIR=%BASE_DIR%storage"
 
-:: 2. Auto-check jika dependensi belum terpasang
+:: Tambahkan path umum tool Python dan uv ke PATH sesi ini
+set "PATH=%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;%LOCALAPPDATA%\hermes\bin;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python310;C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;%PATH%"
+
+set "INSTALL_ONLY=0"
+if "%~1"=="--install-only" set "INSTALL_ONLY=1"
+if "%~1"=="-i" set "INSTALL_ONLY=1"
+
+:: 2. Auto-deteksi apakah dependensi sudah lengkap
 set "NEED_INSTALL=0"
 if not exist "%WEB_DIR%\node_modules" set "NEED_INSTALL=1"
 if not exist "%WORKER_DIR%\.venv" set "NEED_INSTALL=1"
+if not exist "%WORKER_DIR%\.env" set "NEED_INSTALL=1"
+if not exist "%WEB_DIR%\.env.local" set "NEED_INSTALL=1"
+if not exist "%STORAGE_DIR%\projects" set "NEED_INSTALL=1"
 
-if "!NEED_INSTALL!"=="1" (
-    echo [INFO] Dependensi Web atau AI Worker belum terpasang lengkap.
-    echo Menjalankan auto installer ^(install.bat^) terlebih dahulu...
-    echo.
-    if exist "%BASE_DIR%install.bat" (
-        call "%BASE_DIR%install.bat"
-    )
-    if not exist "%WEB_DIR%\node_modules" (
-        echo [ERROR] Folder node_modules belum terbentuk setelah instalasi.
-        pause
-        exit /b 1
-    )
-    if not exist "%WORKER_DIR%\.venv" (
-        echo [ERROR] Virtual environment worker ^(.venv^) belum terbentuk setelah instalasi.
-        pause
-        exit /b 1
-    )
+if "%INSTALL_ONLY%"=="1" set "NEED_INSTALL=1"
+
+if "!NEED_INSTALL!"=="1" goto :DO_INSTALL
+
+:: Verifikasi apakah better-sqlite3 sudah terinstall dan valid
+where node >nul 2>nul
+if %errorlevel% neq 0 goto :DO_INSTALL
+
+node -e "try { require('better-sqlite3'); } catch(e) { process.exit(1); }" >nul 2>nul
+if %errorlevel% neq 0 goto :DO_INSTALL
+
+echo [OK] Seluruh dependensi OpenClip sudah lengkap dan terverifikasi.
+goto :RUN_APP
+
+:DO_INSTALL
+echo ============================================================
+echo       MEMERIKSA DAN MENYIAPKAN DEPENDENSI OPENCLIP
+echo ============================================================
+echo.
+
+:: A. Periksa / Pasang Node.js & npm
+echo [1/6] Memeriksa Node.js dan npm...
+where node >nul 2>nul
+if %errorlevel% equ 0 goto :NODE_OK
+
+echo [INFO] Node.js belum terdeteksi di komputer ini.
+where winget >nul 2>nul
+if %errorlevel% equ 0 (
+    echo Mencoba memasang Node.js LTS otomatis via winget...
+    winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+    set "PATH=C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;!PATH!"
 )
 
-:: 3. Verifikasi ketersediaan Node.js
 where node >nul 2>nul
+if %errorlevel% equ 0 goto :NODE_OK
+
+echo.
+echo ============================================================
+echo [ERROR] Node.js belum terpasang!
+echo Silakan unduh dan pasang Node.js (LTS v18 ke atas) dari:
+echo https://nodejs.org/
+echo Setelah selesai, jalankan kembali start.bat
+echo ============================================================
+pause
+exit /b 1
+
+:NODE_OK
+for /f "tokens=*" %%v in ('node -v 2^>nul') do echo [OK] Node.js terpasang: %%v
+
+where npm >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] Node.js belum terpasang atau tidak ada di PATH.
-    echo Silakan jalankan install.bat terlebih dahulu!
+    echo [ERROR] npm tidak terdeteksi! Pastikan instalasi Node.js menyertakan npm.
     pause
     exit /b 1
 )
 
-:: 4. Deteksi perintah eksekusi worker
-set "WORKER_CMD="
+:: B. Periksa / Pasang uv (Fast Python Package & Environment Manager)
+echo.
+echo [2/6] Memeriksa uv package manager...
+where uv >nul 2>nul
+if %errorlevel% equ 0 goto :UV_OK
+
+echo [INFO] uv belum terpasang. Menginstall uv secara otomatis...
+powershell -ExecutionPolicy ByPass -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://astral.sh/uv/install.ps1 | iex"
+set "PATH=%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;!PATH!"
+
+where uv >nul 2>nul
+if %errorlevel% equ 0 goto :UV_OK
+
+:: Fallback coba pasang uv via pip jika python sudah ada
+where python >nul 2>nul
+if %errorlevel% equ 0 (
+    python -m pip install --upgrade uv >nul 2>nul
+)
+
+:UV_OK
+set "HAS_UV=0"
+where uv >nul 2>nul
+if %errorlevel% equ 0 (
+    set "HAS_UV=1"
+    for /f "tokens=*" %%v in ('uv --version 2^>nul') do echo [OK] uv terdeteksi: %%v
+)
+
+:: C. Periksa / Pasang Python
+echo.
+echo [3/6] Memeriksa Python...
+where python >nul 2>nul
+if %errorlevel% equ 0 (
+    for /f "tokens=*" %%v in ('python --version 2^>nul') do echo [OK] Python sistem terdeteksi: %%v
+    goto :PYTHON_OK
+)
+
+if "!HAS_UV!"=="1" (
+    echo [INFO] Python belum terpasang di sistem.
+    echo Mengunduh dan memasang Python 3.12 mandiri secara otomatis via uv...
+    call uv python install 3.12
+    if !errorlevel! equ 0 (
+        echo [OK] Python 3.12 berhasil dipasang via uv.
+        goto :PYTHON_OK
+    )
+)
+
+echo.
+echo ============================================================
+echo [ERROR] Python tidak terdeteksi!
+echo Silakan unduh Python 3.10 - 3.12 dari: https://www.python.org/
+echo Pastikan centang 'Add Python to PATH' saat instalasi.
+echo ============================================================
+pause
+exit /b 1
+
+:PYTHON_OK
+
+:: D. Setup Direktori Storage dan File .env
+echo.
+echo [4/6] Menyiapkan folder storage dan konfigurasi environment...
+if not exist "%STORAGE_DIR%" mkdir "%STORAGE_DIR%"
+if not exist "%STORAGE_DIR%\projects" mkdir "%STORAGE_DIR%\projects"
+if not exist "%STORAGE_DIR%\exports" mkdir "%STORAGE_DIR%\exports"
+if not exist "%STORAGE_DIR%\models" mkdir "%STORAGE_DIR%\models"
+
+if not exist "%WORKER_DIR%\.env" (
+    if exist "%WORKER_DIR%\.env.example" (
+        copy "%WORKER_DIR%\.env.example" "%WORKER_DIR%\.env" >nul
+        echo [OK] Dibuat worker/.env dari template
+    )
+)
+if not exist "%WEB_DIR%\.env.local" (
+    if exist "%WEB_DIR%\.env.example" (
+        copy "%WEB_DIR%\.env.example" "%WEB_DIR%\.env.local" >nul
+        echo [OK] Dibuat web/.env.local dari template
+    )
+)
+
+:: E. Install Dependensi Web Frontend (npm install)
+echo.
+echo [5/6] Menginstall dependensi Web Frontend (npm install)...
+cd /d "%WEB_DIR%"
+if not exist "%WEB_DIR%\node_modules" (
+    call npm install --no-audit --no-fund
+) else (
+    node -e "try { require('better-sqlite3'); } catch(e) { process.exit(1); }" >nul 2>nul
+    if !errorlevel! neq 0 (
+        echo Memperbarui paket native better-sqlite3...
+        call npm rebuild better-sqlite3
+    )
+)
+
+:: F. Install Dependensi AI Worker (uv sync / pip)
+echo.
+echo [6/6] Menginstall dependensi AI Worker (Python)...
+cd /d "%WORKER_DIR%"
+if "!HAS_UV!"=="1" (
+    call uv sync
+) else (
+    if not exist ".venv" python -m venv .venv
+    call .venv\Scripts\pip install --upgrade pip
+    if exist "requirements.txt" (
+        call .venv\Scripts\pip install -r requirements.txt
+    ) else (
+        call .venv\Scripts\pip install -e .
+    )
+)
+
+:: Unduh Font Subtitle jika belum ada
+if "!HAS_UV!"=="1" (
+    call uv run python scripts/download_fonts.py >nul 2>nul
+) else (
+    call .venv\Scripts\python scripts/download_fonts.py >nul 2>nul
+)
+
+:: Startup Diagnostic Check
+echo.
+echo Menjalankan verifikasi akhir sistem...
+if "!HAS_UV!"=="1" (
+    call uv run python main.py --check
+) else (
+    call .venv\Scripts\python main.py --check
+)
+
+echo.
+echo ============================================================
+echo   SETUP DEPENDENSI SELESAI DENGAN SUKSES! (100%%)
+echo ============================================================
+echo.
+
+if "%INSTALL_ONLY%"=="1" (
+    echo Mode install-only selesai.
+    exit /b 0
+)
+
+:RUN_APP
+cd /d "%BASE_DIR%"
+
 where uv >nul 2>nul
 if %errorlevel% equ 0 (
     set "WORKER_CMD=uv run python main.py --mode all"
@@ -58,30 +233,27 @@ if %errorlevel% equ 0 (
     )
 )
 
-echo [1/2] Menyalakan Web Server Next.js ^(Port 3000^)...
+echo [1/2] Menyalakan Web Server Next.js (Port 3000)...
 start "OpenClip Web Server (Port 3000)" cmd /k "title OpenClip Web Server (Port 3000) && cd /d ""%WEB_DIR%"" && npm run dev"
 
-echo [2/2] Menyalakan OpenClip AI Worker ^(Project dan Export^)...
+echo [2/2] Menyalakan OpenClip AI Worker (Dual Engine)...
 start "OpenClip AI Worker (Dual Engine)" cmd /k "title OpenClip AI Worker (Dual Engine) && cd /d ""%WORKER_DIR%"" && !WORKER_CMD!"
 
 echo.
-echo Menunggu server siap ^(3 detik^) dan membuka browser...
+echo Menunggu server siap (3 detik) dan membuka browser...
 timeout /t 3 /nobreak >nul
 start http://localhost:3000
 
 echo.
 echo ============================================================
-echo   Kedua Server Sudah Berjalan Paralel di Jendela Terpisah!
-echo   Aplikasi otomatis terbuka di: http://localhost:3000
+echo   OpenClip Sudah Berjalan Paralel di Jendela Terpisah!
+echo   Aplikasi terbuka di: http://localhost:3000
 echo.
-echo   - Jendela 1: OpenClip Web Server ^(Next.js^)
-echo   - Jendela 2: OpenClip AI Worker Daemon ^(Transkrip, Crop dan Export^)
+echo   - Jendela 1: OpenClip Web Server (Next.js)
+echo   - Jendela 2: OpenClip AI Worker Daemon (Transkrip, Crop dan Export)
 echo.
-echo   Catatan: Jika port 3000 sedang dipakai aplikasi lain,
-echo   Next.js akan otomatis beralih ke http://localhost:3001.
-echo.
-echo   ^(Untuk mematikan sistem, cukup tutup kedua jendela CMD tersebut^)
+echo   (Untuk mematikan sistem, cukup tutup kedua jendela CMD tersebut)
 echo ============================================================
 echo.
 timeout /t 5 >nul
-exit
+exit /b 0
