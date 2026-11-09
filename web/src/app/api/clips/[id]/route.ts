@@ -4,6 +4,44 @@ import { Clip } from '@/lib/types';
 import fs from 'fs';
 import path from 'path';
 
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const clipId = Number(id);
+    if (!clipId) {
+      return NextResponse.json({ error: 'ID clip tidak valid' }, { status: 400 });
+    }
+
+    const clip = await queryOne<any>(`
+      SELECT c.*, e.caption_segments, e.style, e.frame, e.audio
+      FROM clips c
+      LEFT JOIN clip_edits e ON e.clip_id = c.id
+      WHERE c.id = ?
+    `, [clipId]);
+
+    if (!clip) {
+      return NextResponse.json({ error: 'Klip tidak ditemukan' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      clip: {
+        ...clip,
+        score_breakdown: fromJson(clip?.score_breakdown, null),
+        hashtags: fromJson(clip?.hashtags, []),
+        caption_segments: fromJson(clip?.caption_segments, []),
+        style: fromJson(clip?.style, null),
+        frame: fromJson(clip?.frame, null),
+        audio: fromJson(clip?.audio, null),
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

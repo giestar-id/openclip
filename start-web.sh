@@ -6,3 +6,4 @@ export PATH="$SCRIPT_DIR/tools/node/bin:$HOME/.local/bin:$HOME/.cargo/bin:/opt/h
 
 cd "$SCRIPT_DIR/web"
 exec npm run dev
+

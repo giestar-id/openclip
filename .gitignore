@@ -87,6 +87,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 *.log
+test-screenshots/
 
 # 7. Operating System & IDE Files
 .DS_Store

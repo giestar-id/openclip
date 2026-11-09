@@ -1759,7 +1759,8 @@ export function CanvasViewport({
                       )}
                       {/* Avatar */}
                       <div
-                        className="relative shrink-0 rounded-full overflow-hidden flex items-center justify-center shadow-md transition-all border border-black/10"
+                        data-avatar-container="true"
+                        className="relative shrink-0 rounded-full overflow-hidden flex items-center justify-center shadow-md transition-all border-0"
                         style={{
                           width: `${Math.max(22, Math.min(52, headerBarHeight - 12))}px`,
                           height: `${Math.max(22, Math.min(52, headerBarHeight - 12))}px`,
