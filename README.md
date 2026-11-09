@@ -255,8 +255,7 @@ openclip/
 │   ├── clipper/              # Engine: Whisper STT, Analyzer, Face Tracker, FFmpeg
 │   ├── scripts/              # Helper script: download_fonts.py
 │   ├── main.py               # Entrypoint worker loop & startup check
-│   ├── pyproject.toml        # Konfigurasi dependensi uv / Python
-│   └── requirements.txt      # Cadangan dependensi standar pip
+│   └── pyproject.toml        # Standar dependensi modern Python (uv / pip)
 ├── install.bat               # Installer otomatis 1-klik
 ├── start.bat                 # Launcher 1-klik (Web + Worker + Browser)
 ├── start-worker.bat          # Launcher standalone dual worker

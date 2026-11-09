@@ -252,11 +252,7 @@ if "!HAS_UV!"=="1" (
 ) else (
     if not exist ".venv" python -m venv .venv
     call .venv\Scripts\pip install --upgrade pip
-    if exist "requirements.txt" (
-        call .venv\Scripts\pip install -r requirements.txt
-    ) else (
-        call .venv\Scripts\pip install -e .
-    )
+    call .venv\Scripts\pip install .
 )
 
 :: Unduh Font Subtitle jika belum ada (Non-Fatal jika offline)

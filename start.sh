@@ -183,11 +183,7 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
     else
         [ ! -d ".venv" ] && python3 -m venv .venv
         .venv/bin/pip install --upgrade pip
-        if [ -f "requirements.txt" ]; then
-            .venv/bin/pip install -r requirements.txt
-        else
-            .venv/bin/pip install -e .
-        fi
+        .venv/bin/pip install .
     fi
 
     # Unduh Font Subtitle jika belum ada (Non-Fatal)

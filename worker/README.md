@@ -41,7 +41,7 @@ uv run python main.py --mode all
 ### Menggunakan Standard Python `venv` + `pip`:
 ```bash
 python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\pip install .
 .venv\Scripts\python main.py --check
 .venv\Scripts\python main.py --mode all
 ```
