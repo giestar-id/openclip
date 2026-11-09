@@ -136,18 +136,18 @@ start.command
 **Opsi 2: Lewat Terminal (macOS & Linux)**
 Buka aplikasi **Terminal**, arahkan ke folder OpenClip, lalu jalankan salah satu:
 ```bash
-./start.sh
+./start.command
 ```
 *(Atau ketik `bash start.bat` — file `start.bat` kini sudah berformat polyglot dual-OS yang otomatis mendeteksi macOS/Linux).*
 
-**Fitur Launcher macOS (`start.sh`):**
+**Fitur Launcher macOS & Linux (`start.command`):**
 1. **Dukungan Penuh Apple Silicon (M1/M2/M3/M4) & Intel**: Otomatis mendeteksi arsitektur Mac (`arm64` / `x86_64`).
 2. **Auto-Install `uv` & Python 3.12**: Jika Mac Anda belum memiliki Python atau `uv`, script akan memasangnya secara otomatis.
 3. **Auto-Install Node.js**: Terintegrasi dengan Homebrew jika Node.js belum terpasang.
 4. **Paralel Background Engine & Auto-Browser**: Web Server dan AI Worker langsung menyala di latar belakang, dan browser otomatis terbuka dengan perintah bawaan macOS (`open http://localhost:3000`).
 5. **Clean Exit**: Cukup tekan `Ctrl+C` di terminal untuk mematikan Web Server dan AI Worker secara bersih.
 
-*(Jika hanya ingin memasang dependensi di Mac tanpa menyalakan server: `./start.sh install`).*
+*(Jika hanya ingin memasang dependensi di Mac/Linux tanpa menyalakan server: `./start.command install`).*
 
 ---
 
@@ -177,12 +177,12 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## 🛠️ Perintah Tambahan (Unified Launcher)
 
-Satu file `start.bat` (Windows) dan `start.sh` (macOS/Linux) dapat menerima perintah sub-komponen berikut:
-- **`start.bat web [port]`** / **`./start.sh web [port]`**: Menjalankan Web Server saja (port bawaan: 3000).
-- **`start.bat worker`** / **`./start.sh worker`**: Menjalankan AI Worker ganda (transkripsi + ekspor).
-- **`start.bat export`** / **`./start.sh export`**: Menjalankan Dedicated Export Worker khusus render antrean ekspor.
-- **`start.bat install`** / **`./start.sh install`**: Menjalankan pemeriksaan dan instalasi seluruh dependensi saja.
-- **`start.bat check`** / **`./start.sh check`**: Menjalankan pemeriksaan diagnostik sistem (database, FFmpeg, font, API keys).
+Satu file `start.bat` (Windows) dan `start.command` (macOS/Linux) dapat menerima perintah sub-komponen berikut:
+- **`start.bat web [port]`** / **`./start.command web [port]`**: Menjalankan Web Server saja (port bawaan: 3000).
+- **`start.bat worker`** / **`./start.command worker`**: Menjalankan AI Worker ganda (transkripsi + ekspor).
+- **`start.bat export`** / **`./start.command export`**: Menjalankan Dedicated Export Worker khusus render antrean ekspor.
+- **`start.bat install`** / **`./start.command install`**: Menjalankan pemeriksaan dan instalasi seluruh dependensi saja.
+- **`start.bat check`** / **`./start.command check`**: Menjalankan pemeriksaan diagnostik sistem (database, FFmpeg, font, API keys).
 
 ---
 
@@ -256,8 +256,7 @@ openclip/
 │   ├── main.py               # Entrypoint worker loop & startup check
 │   └── pyproject.toml        # Standar dependensi modern Python (uv / pip)
 ├── start.bat                 # Master Unified Launcher Windows (1-Klik untuk segalanya)
-├── start.sh                  # Master Unified Launcher macOS & Linux (Terminal)
-├── start.command             # Launcher 1-Klik macOS Finder
+├── start.command             # Master Unified Launcher macOS & Linux (1-Klik Finder Mac / Terminal)
 └── README.md                 # Dokumentasi utama proyek
 ```
 

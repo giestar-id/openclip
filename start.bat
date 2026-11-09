@@ -1,4 +1,4 @@
-rem () { :; }; SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"; exec bash "$SCRIPT_DIR/start.sh" "$@"; exit 0
+rem () { :; }; SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"; exec bash "$SCRIPT_DIR/start.command" "$@"; exit 0
 @echo off
 setlocal enabledelayedexpansion
 
