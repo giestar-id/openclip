@@ -126,12 +126,19 @@ start.bat
 
 ### B. Pengguna macOS / MacBook (Apple Silicon & Intel) & Linux
 
-Buka aplikasi **Terminal**, arahkan ke folder OpenClip, lalu jalankan:
+**Opsi 1: 1-Klik Langsung dari Finder (Paling Praktis)**
+Cukup klik ganda file berikut di Finder macOS:
+```text
+start.command
+```
+*(Terminal bawaan Mac akan terbuka secara otomatis dan menyalakan OpenClip).*
+
+**Opsi 2: Lewat Terminal (macOS & Linux)**
+Buka aplikasi **Terminal**, arahkan ke folder OpenClip, lalu jalankan salah satu:
 ```bash
-chmod +x start.sh
 ./start.sh
 ```
-*(Atau cukup ketik: `bash start.sh`)*
+*(Atau ketik `bash start.bat` — file `start.bat` kini sudah berformat polyglot dual-OS yang otomatis mendeteksi macOS/Linux).*
 
 **Fitur Launcher macOS (`start.sh`):**
 1. **Dukungan Penuh Apple Silicon (M1/M2/M3/M4) & Intel**: Otomatis mendeteksi arsitektur Mac (`arm64` / `x86_64`).

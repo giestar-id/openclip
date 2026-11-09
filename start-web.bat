@@ -1,6 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title OpenClip Web Server (Port 3000)
+
+set "PORT=%~1"
+if "%PORT%"=="" set "PORT=3000"
+title OpenClip Web Server (Port %PORT%)
 
 set "BASE_DIR=%~dp0"
 set "TOOLS_DIR=%BASE_DIR%tools"
@@ -11,12 +14,12 @@ if exist "%TOOLS_DIR%\node" set "PATH=%TOOLS_DIR%\node;!PATH!"
 set "PATH=%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;!PATH!"
 
 echo ============================================================
-echo           OpenClip Web Server (Next.js Turbopack)
+echo      OpenClip Web Server (Next.js Turbopack - Port %PORT%)
 echo ============================================================
 echo.
 
 cd /d "%WEB_DIR%"
-call npm run dev
+call npm run dev -- -p %PORT%
 
 if %errorlevel% neq 0 (
     echo.
@@ -26,4 +29,3 @@ if %errorlevel% neq 0 (
     echo ============================================================
     set /p "DUMMY=Tekan [Enter] untuk menutup jendela ini: "
 )
-

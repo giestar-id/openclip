@@ -96,3 +96,4 @@ else:
     print(f"Projects already exist (count: {count}).")
 
 conn.close()
+

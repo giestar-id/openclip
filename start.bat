@@ -1,3 +1,4 @@
+rem () { :; }; SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"; exec bash "$SCRIPT_DIR/start.sh" "$@"; exit 0
 @echo off
 setlocal enabledelayedexpansion
 title OpenClip - One-Click Launcher
@@ -298,7 +299,7 @@ if %errorlevel% equ 0 (
 )
 
 echo [1/2] Menyalakan Web Server Next.js (Port !APP_PORT!)...
-start "OpenClip Web Server (Port !APP_PORT!)" "%BASE_DIR%start-web.bat"
+start "OpenClip Web Server (Port !APP_PORT!)" "%BASE_DIR%start-web.bat" !APP_PORT!
 
 echo [2/2] Menyalakan OpenClip AI Worker (Dual Engine)...
 start "OpenClip AI Worker (Dual Engine)" "%BASE_DIR%start-worker.bat"

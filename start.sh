@@ -221,8 +221,22 @@ fi
 # 3. Jalankan Aplikasi di Background
 cd "$SCRIPT_DIR"
 
-echo "[1/2] Menyalakan Web Server Next.js (Port 3000)..."
-(cd "$WEB_DIR" && npm run dev) &
+# Deteksi jika port 3000 sedang dipakai aplikasi lain di komputer
+APP_PORT=3000
+if command -v lsof >/dev/null 2>&1; then
+    if lsof -i :3000 >/dev/null 2>&1; then
+        echo "[INFO] Port 3000 sedang dipakai aplikasi lain. Beralih ke port 3001..."
+        APP_PORT=3001
+    fi
+elif command -v nc >/dev/null 2>&1; then
+    if nc -z 127.0.0.1 3000 2>/dev/null; then
+        echo "[INFO] Port 3000 sedang dipakai aplikasi lain. Beralih ke port 3001..."
+        APP_PORT=3001
+    fi
+fi
+
+echo "[1/2] Menyalakan Web Server Next.js (Port ${APP_PORT})..."
+(cd "$WEB_DIR" && npm run dev -- -p "$APP_PORT") &
 WEB_PID=$!
 
 echo "[2/2] Menyalakan OpenClip AI Worker (Dual Engine)..."
@@ -248,15 +262,6 @@ trap cleanup SIGINT SIGTERM EXIT
 echo ""
 echo "Menunggu server siap (3 detik) dan membuka browser..."
 sleep 3
-
-# Deteksi jika port 3000 sedang dipakai
-APP_PORT=3000
-if command -v lsof >/dev/null 2>&1; then
-    if lsof -i :3000 >/dev/null 2>&1; then
-        echo "[INFO] Port 3000 sedang dipakai aplikasi lain. Beralih ke port 3001..."
-        APP_PORT=3001
-    fi
-fi
 
 # Buka browser otomatis
 if [ "$(uname -s)" = "Darwin" ]; then
