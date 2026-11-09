@@ -5,11 +5,6 @@
 
 set -e
 
-echo "============================================================"
-echo "        OPENCLIP - ONE-CLICK LAUNCHER (macOS & Linux)"
-echo "============================================================"
-echo ""
-
 # 1. Deteksi direktori proyek
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEB_DIR="$SCRIPT_DIR/web"
@@ -21,10 +16,81 @@ TOOLS_DIR="$SCRIPT_DIR/tools"
 export PATH="$TOOLS_DIR/node/bin:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 [ -f "$HOME/.local/bin/env" ] && source "$HOME/.local/bin/env" 2>/dev/null || true
 
+# -------------------------------------------------------------
+# ROUTING SUB-COMMAND STANDALONE (MENGGANTIKAN SEMUA SH TERPISAH)
+# -------------------------------------------------------------
+case "$1" in
+    web|--web)
+        PORT="${2:-3000}"
+        echo "============================================================"
+        echo "     OpenClip Web Server (Next.js Turbopack - Port $PORT)"
+        echo "============================================================"
+        echo ""
+        cd "$WEB_DIR"
+        exec npm run dev -- -p "$PORT"
+        ;;
+    worker|--worker)
+        echo "============================================================"
+        echo "     Menjalankan OpenClip AI Worker (Dual Engine)"
+        echo "============================================================"
+        echo ""
+        cd "$WORKER_DIR"
+        if command -v uv >/dev/null 2>&1; then
+            exec uv run python main.py --mode all
+        elif [ -f "$WORKER_DIR/.venv/bin/python" ]; then
+            exec .venv/bin/python main.py --mode all
+        else
+            exec python3 main.py --mode all
+        fi
+        ;;
+    export|--export)
+        echo "============================================================"
+        echo "     Menjalankan Dedicated Export Worker (Khusus Ekspor)"
+        echo "============================================================"
+        echo ""
+        cd "$WORKER_DIR"
+        if command -v uv >/dev/null 2>&1; then
+            exec uv run python main.py --mode export
+        elif [ -f "$WORKER_DIR/.venv/bin/python" ]; then
+            exec .venv/bin/python main.py --mode export
+        else
+            exec python3 main.py --mode export
+        fi
+        ;;
+    check|--check)
+        cd "$WORKER_DIR"
+        if command -v uv >/dev/null 2>&1; then
+            exec uv run python main.py --check
+        elif [ -f "$WORKER_DIR/.venv/bin/python" ]; then
+            exec .venv/bin/python main.py --check
+        else
+            exec python3 main.py --check
+        fi
+        ;;
+    help|--help|-h)
+        echo "============================================================"
+        echo "           PANDUAN PERINTAH OPENCLIP LAUNCHER"
+        echo "============================================================"
+        echo "  ./start.sh           : Menjalankan sistem lengkap 1-klik (Web + Worker + Browser)"
+        echo "  ./start.sh install   : Menyiapkan dan menginstall seluruh dependensi saja"
+        echo "  ./start.sh web [port]: Menjalankan Web Server saja (default port 3000)"
+        echo "  ./start.sh worker    : Menjalankan AI Worker ganda (transkrip + ekspor)"
+        echo "  ./start.sh export    : Menjalankan Dedicated Export Worker khusus ekspor"
+        echo "  ./start.sh check     : Menjalankan pemeriksaan diagnostik sistem"
+        echo "============================================================"
+        exit 0
+        ;;
+esac
+
 INSTALL_ONLY=0
-if [ "$1" = "--install-only" ] || [ "$1" = "-i" ]; then
+if [ "$1" = "install" ] || [ "$1" = "--install" ] || [ "$1" = "--install-only" ] || [ "$1" = "-i" ]; then
     INSTALL_ONLY=1
 fi
+
+echo "============================================================"
+echo "        OPENCLIP - ONE-CLICK LAUNCHER (macOS & Linux)"
+echo "============================================================"
+echo ""
 
 # 2. Cek apakah dependensi sudah lengkap
 NEED_INSTALL=0
@@ -101,18 +167,17 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
                 xdg-open "https://nodejs.org/" 2>/dev/null || true
             fi
             echo ""
-            echo "1. Silakan unduh dan pasang Node.js LTS dari browser."
-            echo "2. Setelah instalasi selesai, tekan Enter di jendela ini"
-            echo "   untuk langsung melanjutkan setup OpenClip..."
+            echo "1. Silakan unduh dan pasang Node.js LTS dari browser yang terbuka."
+            echo "2. Setelah instalasi selesai, tekan [Enter] di jendela terminal ini."
             echo "============================================================"
-            read -r -p "Tekan [Enter] untuk melanjutkan: " _
-            export PATH="$TOOLS_DIR/node/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+            read -p "Tekan [Enter] untuk melanjutkan: " DUMMY
         done
     fi
-    echo "[OK] Node.js terdeteksi: $(node -v)"
-    echo "[OK] npm terdeteksi: v$(npm -v)"
 
-    # B. Periksa / Pasang uv (Fast Python Package & Environment Manager)
+    echo "[OK] Node.js terpasang: $(node -v)"
+    echo "[OK] npm terpasang: $(npm -v)"
+
+    # B. Periksa / Pasang uv (Fast Python Package Manager)
     echo ""
     echo "[2/6] Memeriksa uv package manager..."
     if ! command -v uv >/dev/null 2>&1; then
@@ -122,35 +187,40 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
         [ -f "$HOME/.local/bin/env" ] && source "$HOME/.local/bin/env" 2>/dev/null || true
     fi
 
+    HAS_UV=0
     if command -v uv >/dev/null 2>&1; then
+        HAS_UV=1
         echo "[OK] uv terdeteksi: $(uv --version)"
-    else
-        echo "[PERINGATAN] uv gagal dipasang otomatis, mencoba metode fallback..."
     fi
 
     # C. Periksa / Pasang Python
     echo ""
     echo "[3/6] Memeriksa Python..."
-    if command -v uv >/dev/null 2>&1; then
-        echo "Menyiapkan runtime Python 3.12 mandiri via uv..."
-        uv python install 3.12 || true
-        echo "[OK] Runtime Python siap via uv."
-    elif command -v python3 >/dev/null 2>&1; then
+    if command -v python3 >/dev/null 2>&1; then
         echo "[OK] Python sistem terdeteksi: $(python3 --version)"
+    elif [ "$HAS_UV" = "1" ]; then
+        echo "[INFO] Python belum terpasang di sistem."
+        echo "Mengunduh dan memasang Python 3.12 mandiri secara otomatis via uv..."
+        uv python install 3.12
+        echo "[OK] Python 3.12 berhasil dipasang via uv."
     else
-        if command -v brew >/dev/null 2>&1; then
-            echo "Memasang Python via Homebrew..."
-            brew install python@3.12
-        else
-            echo "[ERROR] Python 3 belum terpasang. Unduh dari: https://www.python.org/"
-            exit 1
-        fi
+        echo "============================================================"
+        echo "[ERROR] Python tidak terdeteksi!"
+        echo "Silakan install Python 3.10 - 3.12 dari https://www.python.org/"
+        echo "atau via Homebrew: brew install python@3.12"
+        echo "============================================================"
+        read -p "Tekan [Enter] untuk keluar: " DUMMY
+        exit 1
     fi
 
-    # D. Setup Direktori Storage dan File .env (Defensif)
+    # D. Setup Direktori Storage dan File .env
     echo ""
-    echo "[4/6] Menyiapkan direktori storage dan konfigurasi environment..."
-    mkdir -p "$STORAGE_DIR/projects" "$STORAGE_DIR/exports" "$STORAGE_DIR/models" "$STORAGE_DIR/models/face" "$SCRIPT_DIR/database" "$WEB_DIR/public/fonts"
+    echo "[4/6] Menyiapkan folder storage dan konfigurasi environment..."
+    mkdir -p "$STORAGE_DIR/projects"
+    mkdir -p "$STORAGE_DIR/exports"
+    mkdir -p "$STORAGE_DIR/models/face"
+    mkdir -p "$SCRIPT_DIR/database"
+    mkdir -p "$WEB_DIR/public/fonts"
 
     if [ ! -f "$WORKER_DIR/.env" ] && [ -f "$WORKER_DIR/.env.example" ]; then
         cp "$WORKER_DIR/.env.example" "$WORKER_DIR/.env"
@@ -169,8 +239,8 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
         npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
     else
         if ! node -e "try { require('better-sqlite3'); } catch(e) { process.exit(1); }" >/dev/null 2>&1; then
-            echo "Memperbarui native better-sqlite3..."
-            npm rebuild better-sqlite3 2>/dev/null || npm install better-sqlite3@12.11.1 --save-exact --no-audit
+            echo "Memperbarui paket native better-sqlite3..."
+            npm rebuild better-sqlite3 >/dev/null 2>&1 || npm install better-sqlite3@12.11.1 --save-exact --no-audit
         fi
     fi
 

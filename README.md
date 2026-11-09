@@ -120,7 +120,7 @@ start.bat
    - Jendela 2: OpenClip AI Worker Daemon (Project & Export paralel)
    - Browser default Anda akan otomatis terbuka ke `http://localhost:3000`.
 
-*(Jika Anda hanya ingin memasang dependensi tanpa menyalakan server, Anda dapat menjalankan `start.bat --install-only` atau `install.bat`).*
+*(Jika Anda hanya ingin memasang dependensi tanpa menyalakan server: `start.bat install`).*
 
 ---
 
@@ -147,7 +147,7 @@ Buka aplikasi **Terminal**, arahkan ke folder OpenClip, lalu jalankan salah satu
 4. **Paralel Background Engine & Auto-Browser**: Web Server dan AI Worker langsung menyala di latar belakang, dan browser otomatis terbuka dengan perintah bawaan macOS (`open http://localhost:3000`).
 5. **Clean Exit**: Cukup tekan `Ctrl+C` di terminal untuk mematikan Web Server dan AI Worker secara bersih.
 
-*(Jika hanya ingin memasang dependensi di Mac tanpa menyalakan server: `./start.sh --install-only` atau `bash install.sh`).*
+*(Jika hanya ingin memasang dependensi di Mac tanpa menyalakan server: `./start.sh install`).*
 
 ---
 
@@ -175,15 +175,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
-## 🛠️ Script Tambahan (Khusus Worker)
+## 🛠️ Perintah Tambahan (Unified Launcher)
 
-Jika Anda ingin menjalankan worker secara terpisah untuk keperluan *debugging* atau server terpisah:
-- **Windows**:
-  - `start-worker.bat`: Menjalankan worker gabungan (transkripsi + render ekspor).
-  - `start-export-worker.bat`: Menjalankan worker khusus pemrosesan render ekspor video.
-- **macOS / MacBook & Linux**:
-  - `./start-worker.sh`: Menjalankan worker gabungan di terminal Unix/Mac.
-  - `./start-export-worker.sh`: Menjalankan worker khusus pemrosesan render ekspor video di terminal Unix/Mac.
+Satu file `start.bat` (Windows) dan `start.sh` (macOS/Linux) dapat menerima perintah sub-komponen berikut:
+- **`start.bat web [port]`** / **`./start.sh web [port]`**: Menjalankan Web Server saja (port bawaan: 3000).
+- **`start.bat worker`** / **`./start.sh worker`**: Menjalankan AI Worker ganda (transkripsi + ekspor).
+- **`start.bat export`** / **`./start.sh export`**: Menjalankan Dedicated Export Worker khusus render antrean ekspor.
+- **`start.bat install`** / **`./start.sh install`**: Menjalankan pemeriksaan dan instalasi seluruh dependensi saja.
+- **`start.bat check`** / **`./start.sh check`**: Menjalankan pemeriksaan diagnostik sistem (database, FFmpeg, font, API keys).
 
 ---
 
@@ -256,10 +255,9 @@ openclip/
 │   ├── scripts/              # Helper script: download_fonts.py
 │   ├── main.py               # Entrypoint worker loop & startup check
 │   └── pyproject.toml        # Standar dependensi modern Python (uv / pip)
-├── install.bat               # Installer otomatis 1-klik
-├── start.bat                 # Launcher 1-klik (Web + Worker + Browser)
-├── start-worker.bat          # Launcher standalone dual worker
-├── start-export-worker.bat   # Launcher standalone export worker
+├── start.bat                 # Master Unified Launcher Windows (1-Klik untuk segalanya)
+├── start.sh                  # Master Unified Launcher macOS & Linux (Terminal)
+├── start.command             # Launcher 1-Klik macOS Finder
 └── README.md                 # Dokumentasi utama proyek
 ```
 

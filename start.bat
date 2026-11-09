@@ -1,14 +1,8 @@
 rem () { :; }; SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"; exec bash "$SCRIPT_DIR/start.sh" "$@"; exit 0
 @echo off
 setlocal enabledelayedexpansion
-title OpenClip - One-Click Launcher
 
-echo ============================================================
-echo             OPENCLIP - ONE-CLICK LAUNCHER
-echo ============================================================
-echo.
-
-:: 1. Deteksi direktori proyek (Aman terhadap spasi & karakter khusus)
+:: 1. Deteksi direktori proyek (Aman terhadap spasi & path khusus)
 set "BASE_DIR=%~dp0"
 set "WEB_DIR=%BASE_DIR%web"
 set "WORKER_DIR=%BASE_DIR%worker"
@@ -18,9 +12,31 @@ set "TOOLS_DIR=%BASE_DIR%tools"
 :: Tambahkan path umum tool Python, Node.js dan uv ke PATH sesi ini
 set "PATH=%TOOLS_DIR%\node;%USERPROFILE%\.local\bin;%USERPROFILE%\.cargo\bin;%LOCALAPPDATA%\hermes\bin;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python310;C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\nodejs;%PATH%"
 
-set "INSTALL_ONLY=0"
-if "%~1"=="--install-only" set "INSTALL_ONLY=1"
-if "%~1"=="-i" set "INSTALL_ONLY=1"
+:: -------------------------------------------------------------
+:: ROUTING SUB-COMMAND STANDALONE (MENGGANTIKAN SEMUA FILE BAT TERPISAH)
+:: -------------------------------------------------------------
+if /i "%~1"=="web" goto :SUB_WEB
+if /i "%~1"=="--web" goto :SUB_WEB
+if /i "%~1"=="worker" goto :SUB_WORKER
+if /i "%~1"=="--worker" goto :SUB_WORKER
+if /i "%~1"=="export" goto :SUB_EXPORT
+if /i "%~1"=="--export" goto :SUB_EXPORT
+if /i "%~1"=="install" goto :SUB_INSTALL
+if /i "%~1"=="--install" goto :SUB_INSTALL
+if /i "%~1"=="--install-only" goto :SUB_INSTALL
+if /i "%~1"=="-i" goto :SUB_INSTALL
+if /i "%~1"=="check" goto :SUB_CHECK
+if /i "%~1"=="--check" goto :SUB_CHECK
+if /i "%~1"=="help" goto :SUB_HELP
+if /i "%~1"=="--help" goto :SUB_HELP
+if /i "%~1"=="-h" goto :SUB_HELP
+
+title OpenClip - One-Click Launcher
+
+echo ============================================================
+echo             OPENCLIP - ONE-CLICK LAUNCHER
+echo ============================================================
+echo.
 
 :: 2. Auto-deteksi apakah dependensi sudah lengkap
 set "NEED_INSTALL=0"
@@ -29,8 +45,6 @@ if not exist "%WORKER_DIR%\.venv" set "NEED_INSTALL=1"
 if not exist "%WORKER_DIR%\.env" set "NEED_INSTALL=1"
 if not exist "%WEB_DIR%\.env.local" set "NEED_INSTALL=1"
 if not exist "%STORAGE_DIR%\projects" set "NEED_INSTALL=1"
-
-if "%INSTALL_ONLY%"=="1" set "NEED_INSTALL=1"
 
 if "!NEED_INSTALL!"=="1" goto :DO_INSTALL
 
@@ -43,6 +57,10 @@ if %errorlevel% neq 0 goto :DO_INSTALL
 
 echo [OK] Seluruh dependensi OpenClip sudah lengkap dan terverifikasi.
 goto :RUN_APP
+
+:SUB_INSTALL
+set "INSTALL_ONLY=1"
+goto :DO_INSTALL
 
 :DO_INSTALL
 echo ============================================================
@@ -278,7 +296,8 @@ echo ============================================================
 echo.
 
 if "%INSTALL_ONLY%"=="1" (
-    echo Mode install-only selesai.
+    echo Mode install-only selesai. Tekan Enter untuk keluar.
+    set /p "DUMMY=Tekan [Enter] untuk menutup: "
     exit /b 0
 )
 
@@ -295,14 +314,14 @@ if %errorlevel% equ 0 (
 )
 
 echo [1/2] Menyalakan Web Server Next.js (Port !APP_PORT!)...
-start "OpenClip Web Server (Port !APP_PORT!)" "%BASE_DIR%start-web.bat" !APP_PORT!
+start "OpenClip Web Server (Port !APP_PORT!)" cmd /k ""%~f0" web !APP_PORT!"
 
 echo [2/2] Menyalakan OpenClip AI Worker (Dual Engine)...
-start "OpenClip AI Worker (Dual Engine)" "%BASE_DIR%start-worker.bat"
+start "OpenClip AI Worker (Dual Engine)" cmd /k ""%~f0" worker"
 
 echo.
-echo Menunggu server siap (3 detik) dan membuka browser...
-timeout /t 3 /nobreak >nul
+echo Menunggu server siap dan membuka browser...
+ping -n 4 127.0.0.1 >nul
 start http://localhost:!APP_PORT!
 
 echo.
@@ -315,5 +334,129 @@ echo.
 echo   (Untuk mematikan sistem, cukup tutup kedua jendela CMD tersebut)
 echo ============================================================
 echo.
-timeout /t 5 >nul
+ping -n 5 127.0.0.1 >nul
+exit /b 0
+
+:: -------------------------------------------------------------
+:: SUB-COMMAND: STANDALONE WEB SERVER
+:: -------------------------------------------------------------
+:SUB_WEB
+set "PORT=%~2"
+if "%PORT%"=="" set "PORT=3000"
+title OpenClip Web Server (Port %PORT%)
+
+echo ============================================================
+echo      OpenClip Web Server (Next.js Turbopack - Port %PORT%)
+echo ============================================================
+echo.
+
+cd /d "%WEB_DIR%"
+call npm run dev -- -p %PORT%
+
+if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
+    echo [ERROR] Web Server terhenti atau mengalami kendala!
+    echo ============================================================
+    set /p "DUMMY=Tekan [Enter] untuk menutup jendela ini: "
+)
+exit /b %errorlevel%
+
+:: -------------------------------------------------------------
+:: SUB-COMMAND: STANDALONE DUAL AI WORKER
+:: -------------------------------------------------------------
+:SUB_WORKER
+title OpenClip AI Worker (Dual Engine)
+
+echo ============================================================
+echo      Menjalankan OpenClip AI Worker (Dual Engine)
+echo ============================================================
+echo.
+
+cd /d "%WORKER_DIR%"
+where uv >nul 2>nul
+if %errorlevel% equ 0 (
+    call uv run python main.py --mode all
+) else (
+    if exist ".venv\Scripts\python.exe" (
+        call .venv\Scripts\python.exe main.py --mode all
+    ) else (
+        call python main.py --mode all
+    )
+)
+
+if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
+    echo [ERROR] Worker Daemon terhenti atau mengalami kendala!
+    echo ============================================================
+    set /p "DUMMY=Tekan [Enter] untuk menutup jendela ini: "
+)
+exit /b %errorlevel%
+
+:: -------------------------------------------------------------
+:: SUB-COMMAND: STANDALONE DEDICATED EXPORT WORKER
+:: -------------------------------------------------------------
+:SUB_EXPORT
+title OpenClip - Dedicated Export Worker
+
+echo ============================================================
+echo      Menjalankan Dedicated Export Worker (Khusus Ekspor)
+echo ============================================================
+echo.
+
+cd /d "%WORKER_DIR%"
+where uv >nul 2>nul
+if %errorlevel% equ 0 (
+    call uv run python main.py --mode export
+) else (
+    if exist ".venv\Scripts\python.exe" (
+        call .venv\Scripts\python.exe main.py --mode export
+    ) else (
+        call python main.py --mode export
+    )
+)
+
+if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
+    echo [ERROR] Export Worker terhenti atau mengalami kendala!
+    echo ============================================================
+    set /p "DUMMY=Tekan [Enter] untuk menutup jendela ini: "
+)
+exit /b %errorlevel%
+
+:: -------------------------------------------------------------
+:: SUB-COMMAND: STANDALONE DIAGNOSTIC CHECK
+:: -------------------------------------------------------------
+:SUB_CHECK
+title OpenClip - Startup Diagnostic Check
+
+cd /d "%WORKER_DIR%"
+where uv >nul 2>nul
+if %errorlevel% equ 0 (
+    call uv run python main.py --check
+) else (
+    if exist ".venv\Scripts\python.exe" (
+        call .venv\Scripts\python.exe main.py --check
+    ) else (
+        call python main.py --check
+    )
+)
+exit /b %errorlevel%
+
+:: -------------------------------------------------------------
+:: SUB-COMMAND: BANTUAN PENGGUNAAN
+:: -------------------------------------------------------------
+:SUB_HELP
+echo ============================================================
+echo             PANDUAN PERINTAH OPENCLIP LAUNCHER
+echo ============================================================
+echo   start.bat           : Menjalankan sistem lengkap 1-klik (Web + Worker + Browser)
+echo   start.bat install   : Menyiapkan dan menginstall seluruh dependensi saja
+echo   start.bat web [port]: Menjalankan Web Server saja (default port 3000)
+echo   start.bat worker    : Menjalankan AI Worker ganda (transkrip + ekspor)
+echo   start.bat export    : Menjalankan Dedicated Export Worker khusus ekspor
+echo   start.bat check     : Menjalankan pemeriksaan diagnostik sistem
+echo ============================================================
 exit /b 0
