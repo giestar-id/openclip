@@ -6,16 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "test:e2e": "node run-browser-e2e.mjs",
-    "test:e2e:deep": "node run-deep-e2e.mjs"
+    "lint": "eslint"
   },
   "dependencies": {
-    "@types/better-sqlite3": "^9.6.0",
     "archiver": "^8.0.0",
     "better-sqlite3": "^12.11.1",
     "lucide-react": "^1.56.0",
-    "mysql2": "^3.24.5",
     "next": "^16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0"
@@ -23,12 +19,12 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
     "@types/archiver": "^8.0.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "^16.4.3",
-    "puppeteer-core": "^24.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
