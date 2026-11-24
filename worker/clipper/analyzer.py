@@ -189,12 +189,134 @@ Kembalikan HANYA format JSON valid tanpa markdown atau teks pengantar:
 """
 
 
-def _format_transcript_for_prompt(sentences: list[list[dict]], max_chars: int = 180000) -> str:
-    """Format transkrip bertanda waktu untuk prompt LLM dengan kapasitas hingga 180.000 karakter."""
-    raw_lines = [
-        f"[{float(s[0]['start']):06.2f} - {float(s[-1]['end']):06.2f}] {' '.join(w['word'] for w in s)}"
-        for s in sentences
+def _get_average_heatmap_value(start: float, end: float, heatmap: list[dict] | None) -> float:
+    """Hitung rata-rata skor retensi YouTube Most Replayed (0.0-1.0) di rentang [start, end]."""
+    if not heatmap:
+        return 0.0
+    overlapping = [
+        float(p.get("value", 0.0))
+        for p in heatmap
+        if float(p.get("end_time", 0.0)) >= start and float(p.get("start_time", 0.0)) <= end
     ]
+    if overlapping:
+        return round(sum(overlapping) / len(overlapping), 3)
+    mid = (start + end) / 2.0
+    closest = min(heatmap, key=lambda p: abs(float(p.get("start_time", 0.0)) - mid))
+    return round(float(closest.get("value", 0.0)), 3)
+
+
+_ID_STOPWORDS = {
+    "yang", "dan", "ini", "itu", "untuk", "dengan", "tidak", "gak", "nggak", "enggak",
+    "bisa", "akan", "sudah", "udah", "karena", "kalau", "kalo", "jadi", "juga", "atau",
+    "dari", "pada", "dalam", "ada", "kita", "kami", "kamu", "mereka", "saya", "aku",
+    "gue", "orang", "kalau", "banget", "sih", "nih", "dong", "kan", "aja", "saja",
+    "harus", "lebih", "sangat", "semua", "seperti", "tapi", "tetapi", "bukan", "hanya",
+}
+_EN_STOPWORDS = {
+    "the", "and", "that", "with", "this", "from", "have", "would", "there", "their",
+    "about", "which", "because", "they", "what", "when", "your", "just", "like", "know",
+    "people", "think", "going", "really", "actually", "something", "right", "here", "where",
+    "were", "been", "being", "could", "should", "through", "between", "before", "after",
+}
+_ARABIC_GREETINGS = {
+    "assalamualaikum", "assalamu", "alaikum", "waalaikum", "bismillah", "alhamdulillah",
+    "insyaallah", "inshaallah", "masyaallah", "mashaallah", "subhanallah", "astaghfirullah",
+    "barakallah", "jazakallah", "wallahu", "allahu", "allah", "rasulullah", "nabi",
+}
+
+
+def detect_transcript_language(
+    sentences: list[list[dict]],
+    video_title: str = "",
+    hint: str = "auto",
+) -> tuple[str, str]:
+    """Deteksi bahasa utama transkrip (ID vs EN vs kode lain) secara akurat tanpa salah deteksi salam Arab."""
+    sample_words: list[str] = []
+    if video_title:
+        sample_words.extend(re.findall(r"[a-zA-ZÀ-ÿ]+", video_title.lower()))
+    for s in sentences[:60]:
+        for w in s:
+            tok = re.sub(r"[^a-zA-ZÀ-ÿ]", "", str(w.get("word", "")).lower())
+            if tok:
+                sample_words.append(tok)
+
+    id_hits = 0
+    en_hits = 0
+    for tok in sample_words:
+        if tok in _ARABIC_GREETINGS:
+            continue
+        if tok in _ID_STOPWORDS or tok.endswith("nya") or tok.startswith(("meng", "meny", "ber")):
+            id_hits += 1
+        elif tok in _EN_STOPWORDS:
+            en_hits += 1
+
+    norm_hint = (hint or "").strip().lower()
+    if id_hits >= 5 and id_hits >= en_hits * 1.15:
+        return ("id", "Bahasa Indonesia")
+    if en_hits >= 5 and en_hits >= id_hits * 1.35:
+        return ("en", "English")
+
+    # Jika hint jelas bukan auto dan bukan 'ar' palsu (ketika ada kata Latin/ID)
+    if norm_hint in ("id", "indonesian", "bahasa indonesia"):
+        return ("id", "Bahasa Indonesia")
+    if norm_hint in ("en", "english"):
+        return ("en", "English")
+    if norm_hint and norm_hint not in ("auto", "ar"):
+        return (norm_hint, norm_hint.upper())
+
+    if en_hits > id_hits:
+        return ("en", "English")
+    return ("id", "Bahasa Indonesia")
+
+
+def sanitize_first_person_title(title: str, channel: str = "", lang: str = "id") -> str:
+    """Ubah judul klip sudut pandang orang pertama (Aku/Saya/Gue/I/My) menjadi sudut pandang orang ketiga."""
+    cleaned = (title or "").strip().strip('"').strip("'").strip()
+    if not cleaned:
+        return cleaned
+
+    speaker = ""
+    if channel:
+        cand = re.sub(r"\s+", " ", channel).strip()
+        if 2 <= len(cand) <= 24:
+            speaker = cand
+
+    if lang == "en":
+        actor = speaker or "They"
+        # Pola awal kalimat umum: "Why I ...", "How I ...", "I ..."
+        cleaned = re.sub(r"\b(Why|How|When|What|Where)\s+I\b", rf"\1 {actor}", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^I\s+(was|am|did|built|lost|made|quit|stopped|never|always|learned|found)\b", rf"{actor} \1", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bI'm\b", f"{actor} Is" if speaker else "They're", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bI've\b", f"{actor} Has" if speaker else "They've", cleaned, flags=re.IGNORECASE)
+        # Hindari pengulangan nama speaker dua kali jika sudah muncul di kalimat
+        poss = "Their" if (not speaker or speaker.lower() in cleaned.lower()) else f"{speaker}'s"
+        cleaned = re.sub(r"\bMy\b", poss, cleaned)
+        cleaned = re.sub(r"\bmy\b", poss.lower() if poss == "Their" else poss, cleaned)
+    else:
+        actor = speaker or "Pembicara"
+        # Ganti kata ganti orang pertama berdiri sendiri (word boundary ketat)
+        cleaned = re.sub(r"\b(Saya|Aku|Gue|Gua|Gw)\b", actor, cleaned)
+        cleaned = re.sub(r"\b(saya|aku|gue|gua|gw)\b", actor if speaker else "dia", cleaned)
+
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+def _format_transcript_for_prompt(
+    sentences: list[list[dict]],
+    max_chars: int = 180000,
+    heatmap: list[dict] | None = None,
+) -> str:
+    """Format transkrip bertanda waktu untuk prompt LLM dengan kapasitas hingga 180.000 karakter."""
+    raw_lines: list[str] = []
+    for s in sentences:
+        s_start = float(s[0]["start"])
+        s_end = float(s[-1]["end"])
+        text = " ".join(w["word"] for w in s)
+        if heatmap:
+            interest = _get_average_heatmap_value(s_start, s_end, heatmap)
+            raw_lines.append(f"[{s_start:06.2f} - {s_end:06.2f} | interest={interest:.2f}] {text}")
+        else:
+            raw_lines.append(f"[{s_start:06.2f} - {s_end:06.2f}] {text}")
     total_len = sum(len(l) + 1 for l in raw_lines)
     if total_len <= max_chars:
         return "\n".join(raw_lines)
@@ -427,6 +549,9 @@ def _heuristic_analyze(
     target_duration: int,
     desired_count: int,
     total_duration: float,
+    heatmap: list[dict] | None = None,
+    channel: str = "",
+    lang: str = "id",
 ) -> list[dict]:
     """Analisis berbasis sinyal audio, hook leksikal, kepadatan kata, dan struktur kalimat."""
     if total_duration < target_duration:
@@ -515,12 +640,21 @@ def _heuristic_analyze(
             punchline_score = min(95, punchline_score)
 
             # Total bobot PRD: Hook 30%, Emotion 25%, Standalone 20%, Punchline 15%, Pace 10%
-            total_score = int(
-                hook_score * 0.30
-                + emotion_score * 0.25
-                + standalone_score * 0.20
-                + punchline_score * 0.15
-                + pace_score * 0.10
+            # + Bonus YouTube Retention Heatmap ("Most Replayed") jika tersedia
+            hm_val = _get_average_heatmap_value(s_time, e_time, heatmap) if heatmap else 0.0
+            hm_bonus = int(min(15, max(0.0, (hm_val - 0.45) * 28.0))) if hm_val >= 0.45 else 0
+            if hm_val >= 0.65:
+                emotion_score = min(98, emotion_score + min(12, int(hm_val * 14)))
+
+            total_score = min(
+                99,
+                int(
+                    hook_score * 0.30
+                    + emotion_score * 0.25
+                    + standalone_score * 0.20
+                    + punchline_score * 0.15
+                    + pace_score * 0.10
+                ) + hm_bonus,
             )
 
             # Ekstrak kata kunci penting untuk judul dan hashtag dinamis
@@ -547,13 +681,15 @@ def _heuristic_analyze(
 
             topic_label = unique_topics[0].capitalize() if unique_topics else "Momen Penting"
             title = f"{hook_text}!" if not hook_text.endswith("!") else hook_text
+            title = sanitize_first_person_title(title, channel=channel, lang=lang)
             if len(title) > 60:
                 title = f"{title[:57]}..."
 
+            hm_note = f" Termasuk puncak Most Replayed YouTube (retensi {int(hm_val * 100)}%)." if hm_val >= 0.65 else ""
             reason = (
                 f"Klip ini memiliki hook pembuka yang kuat ({hook_score}/100) "
                 f"dengan dinamika vokal ({emotion_score}/100), kepadatan ritme ({wps:.1f} kata/detik), "
-                f"dan struktur pesan yang selesai ({standalone_score}/100)."
+                f"dan struktur pesan yang selesai ({standalone_score}/100).{hm_note}"
             )
 
             # Buat deskripsi 3 baris yang terstruktur rapi
@@ -600,6 +736,9 @@ def analyze_transcript(
     language: str = "auto",
     preferred_provider: str = "auto",
     on_progress: Any = None,
+    heatmap: list[dict] | None = None,
+    video_title: str = "",
+    channel: str = "",
 ) -> list[dict]:
     """Pipeline utama analisis viral: LLM multi-provider dengan fallback heuristik."""
     if on_progress:
@@ -680,14 +819,33 @@ def analyze_transcript(
         if not providers:
             logger.info("Tidak ada provider AI dengan API key aktif, otomatis beralih ke analisis Heuristik Offline.")
 
-    formatted_transcript = _format_transcript_for_prompt(sentences)
+    lang_code, lang_name = detect_transcript_language(sentences, video_title=video_title, hint=language)
+    formatted_transcript = _format_transcript_for_prompt(sentences, heatmap=heatmap)
     dur_desc = f"sekitar {target_dur} detik (toleransi {min_dur:.0f} - {max_dur:.0f} detik)" if clip_duration > 0 else "fleksibel 30 hingga 120 detik (1-2 menit) sesuai keutuhan gagasan/cerita"
+
+    context_lines = []
+    if video_title:
+        context_lines.append(f"Judul video sumber: {video_title}")
+    if channel:
+        context_lines.append(f"Channel / Pembicara: {channel}")
+    context_block = ("\n".join(context_lines) + "\n") if context_lines else ""
+
+    heatmap_rule = (
+        "\nDATA RETENSI YOUTUBE (MOST REPLAYED): Setiap baris transkrip dilengkapi skor `interest=0.00..1.00` dari grafik retensi penonton asli YouTube. "
+        "PRIORITASKAN momen di sekitar puncak `interest >= 0.65` karena bagian tersebut terbukti paling sering diputar ulang penonton!\n"
+        if heatmap
+        else ""
+    )
+
     user_prompt = f"""Video berdurasi total {total_duration / 60:.1f} menit ({total_duration:.0f} detik).
-Bahasa utama: {language}.
+{context_block}Bahasa utama transkrip terdeteksi: {lang_name} ({lang_code}).
 Durasi target per klip: {dur_desc}.
 Target jumlah klip: {count_instruction}
-PENTING: Jangan memotong klip di tengah penjelasan! Jika satu ide atau cerita membutuhkan waktu 1 hingga 2 menit agar tuntas dan bermakna, berikan durasi tersebut.
 
+ATURAN WAJIB (ZERO-TRANSLATION & SUDUT PANDANG):
+1. DILARANG MENERJEMAHKAN BAHASA: Seluruh output JSON ("title", "description", "reason", "hashtags") WAJIB ditulis 100% dalam bahasa asli transkrip ({lang_name}). Jika transkrip berbahasa Inggris, tulis semua judul/caption/alasan dalam Bahasa Inggris; jika Bahasa Indonesia, tulis dalam Bahasa Indonesia!
+2. SUDUT PANDANG ORANG KETIGA (CLIPPER RULE): Jangan pernah memakai kata ganti orang pertama ("Aku", "Saya", "Gue", "I", "My") pada "title". Tulis judul sebagai kurator/clipper pihak ketiga (misal menyebut nama pembicara/channel jika relevan).
+3. Jangan memotong klip di tengah penjelasan! Jika satu ide atau cerita membutuhkan waktu 1 hingga 2 menit agar tuntas dan bermakna, berikan durasi tersebut.{heatmap_rule}
 Berikut adalah transkrip bertanda waktu:
 {formatted_transcript}
 """
@@ -758,6 +916,7 @@ Berikut adalah transkrip bertanda waktu:
                     "pace": score,
                 }
                 title_val = str(raw_c.get("title") or raw_c.get("judul") or raw_c.get("hook") or f"Klip Highlight ({int(s_start)}s)").strip()
+                title_val = sanitize_first_person_title(title_val, channel=channel, lang=lang_code)
                 reason_val = str(raw_c.get("reason") or raw_c.get("alasan") or "Klip teridentifikasi memiliki potensi engagement tinggi.").strip()
                 desc_val = str(raw_c.get("description") or raw_c.get("deskripsi") or "").strip()
                 tags_val = raw_c.get("hashtags") or raw_c.get("tags") or raw_c.get("tag") or ["#fyp", "#viral", "#shorts"]
@@ -779,7 +938,16 @@ Berikut adalah transkrip bertanda waktu:
     if not candidates:
         logger.info("Menggunakan fallback analisis heuristik audio & leksikal...")
         heuristic_target = clip_count if clip_count > 0 else max(min_auto, min(max_auto, int(total_duration // 240) or 5))
-        candidates = _heuristic_analyze(sentences, peaks_data, target_dur, heuristic_target * 2, total_duration)
+        candidates = _heuristic_analyze(
+            sentences,
+            peaks_data,
+            target_dur,
+            heuristic_target * 2,
+            total_duration,
+            heatmap=heatmap,
+            channel=channel,
+            lang=lang_code,
+        )
 
     # Deduplikasi overlap (F-13)
     final_clips = deduplicate_clips(candidates, max_overlap=0.3)

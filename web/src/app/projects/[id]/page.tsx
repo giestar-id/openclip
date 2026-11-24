@@ -12,8 +12,16 @@ import { ClipShelf } from '@/components/editor/ClipShelf';
 import { ExportModal } from '@/components/editor/ExportModal';
 import { BatchExportModal } from '@/components/editor/BatchExportModal';
 import { ManualClipModal } from '@/components/editor/ManualClipModal';
-import { Project, Clip, CaptionSegment, CaptionStyle, FrameSettings, AudioSettings } from '@/lib/types';
-import { DEFAULT_STYLE, DEFAULT_FRAME, DEFAULT_AUDIO } from '@/lib/captions';
+import { Project, Clip, CaptionSegment, CaptionStyle, FrameSettings, AudioSettings, EditorSelection, HeatmapPoint, PeaksData } from '@/lib/types';
+import {
+  DEFAULT_STYLE,
+  DEFAULT_FRAME,
+  DEFAULT_AUDIO,
+  buildGroups,
+  normalizeCutRanges,
+  getActiveVideoRanges,
+  getEffectiveClipDuration,
+} from '@/lib/captions';
 import {
   Loader2,
   AlertCircle,
@@ -50,7 +58,8 @@ function EditorContent() {
   // Project & Clips data
   const [project, setProject] = useState<Project | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
-  const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [peaks, setPeaks] = useState<PeaksData | null>(null);
+  const [heatmap, setHeatmap] = useState<HeatmapPoint[] | null>(null);
   const [selectedClip, setSelectedClip] = useState<Clip | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +69,18 @@ function EditorContent() {
   const [style, setStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [frame, setFrame] = useState<FrameSettings>(DEFAULT_FRAME);
   const [audio, setAudio] = useState<AudioSettings>(DEFAULT_AUDIO);
+
+  // Unified OpenCut-style Selection State (Canvas <-> Timeline <-> Keyboard)
+  const [selectedElement, setSelectedElement] = useState<EditorSelection>(null);
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const toggleFullscreenRef = useRef<(() => void) | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setActionToast(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setActionToast(null), 2600);
+  }, []);
 
   // Player state
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -165,6 +186,7 @@ function EditorContent() {
         setProject(data.project);
         setClips(data.clips || []);
         setPeaks(data.peaks || null);
+        setHeatmap(Array.isArray(data.heatmap) ? data.heatmap : null);
 
         // Pilih klip pertama secara default
         if (data.clips && data.clips.length > 0) {
@@ -218,9 +240,51 @@ function EditorContent() {
     historyIndexRef.current = 0;
     setCanUndo(false);
     setCanRedo(false);
+    setSelectedElement(null);
     setCurrentTime(0);
     setIsPlaying(false);
   };
+
+  // Helper: cari titik mulai aktif pertama (menghormati cutRanges)
+  const getFirstActivePreviewTime = useCallback(
+    (clipObj: Clip | null, fr: FrameSettings) => {
+      if (!clipObj) return 0;
+      const offset = clipObj.preview_start_sec ?? 0;
+      const active = getActiveVideoRanges(clipObj.start_sec, clipObj.end_sec, fr.cutRanges);
+      if (active.length > 0) {
+        return Math.max(0, active[0].start - offset);
+      }
+      return Math.max(0, clipObj.start_sec - offset);
+    },
+    []
+  );
+
+  // Helper: jika playhead masuk area yang dihapus (cutRanges), lompati otomatis ke segmen aktif berikutnya
+  const skipCutIfNeeded = useCallback(
+    (video: HTMLVideoElement, cur: number, clipObj: Clip, fr: FrameSettings): number | 'ended' => {
+      const offset = clipObj.preview_start_sec ?? 0;
+      const inPoint = Math.max(0, clipObj.start_sec - offset);
+      const outPoint = Math.max(inPoint + 0.05, clipObj.end_sec - offset);
+      const cuts = normalizeCutRanges(clipObj.start_sec, clipObj.end_sec, fr.cutRanges);
+
+      const realSec = offset + cur;
+      for (const c of cuts) {
+        if (realSec >= c.start - 0.02 && realSec < c.end - 0.03) {
+          const nextPreviewSec = Math.max(inPoint, c.end - offset);
+          if (nextPreviewSec >= outPoint - 0.05) {
+            return 'ended';
+          }
+          video.currentTime = nextPreviewSec;
+          return nextPreviewSec;
+        }
+      }
+      if (cur >= outPoint) {
+        return 'ended';
+      }
+      return cur;
+    },
+    []
+  );
 
   // 2. Sinkronisasi event video player (timeupdate, play, pause, ended)
   useEffect(() => {
@@ -229,37 +293,44 @@ function EditorContent() {
 
     const handleTimeUpdate = () => {
       const cur = video.currentTime;
-      setCurrentTime(cur);
 
       if (selectedClip) {
         const offset = selectedClip.preview_start_sec ?? 0;
         const inPoint = Math.max(0, selectedClip.start_sec - offset);
-        const outPoint = Math.max(inPoint + 0.05, selectedClip.end_sec - offset);
+        const firstActive = getFirstActivePreviewTime(selectedClip, frame);
 
-        // Jika playback mencapai atau melewati outPoint batas akhir potongan:
-        if (cur >= outPoint) {
+        const nextPos = skipCutIfNeeded(video, cur, selectedClip, frame);
+        if (nextPos === 'ended') {
           if (isLooping) {
-            video.currentTime = inPoint;
+            video.currentTime = firstActive;
+            setCurrentTime(firstActive);
             video.play().catch(() => {});
           } else {
+            const outPoint = Math.max(inPoint + 0.05, selectedClip.end_sec - offset);
             video.pause();
             video.currentTime = outPoint;
             setCurrentTime(outPoint);
             setIsPlaying(false);
           }
+          return;
+        } else if (nextPos !== cur) {
+          setCurrentTime(nextPos);
+          return;
         } else if (cur < inPoint) {
-          // Jika currentTime berada di sebelah kiri potongan:
-          video.currentTime = inPoint;
-          setCurrentTime(inPoint);
+          video.currentTime = firstActive;
+          setCurrentTime(firstActive);
+          return;
         }
       }
+      setCurrentTime(cur);
     };
 
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
       if (selectedClip) {
-        const inPoint = Math.max(0, selectedClip.start_sec - (selectedClip.preview_start_sec ?? 0));
-        video.currentTime = inPoint;
+        const firstActive = getFirstActivePreviewTime(selectedClip, frame);
+        video.currentTime = firstActive;
+        setCurrentTime(firstActive);
       }
     };
 
@@ -268,8 +339,9 @@ function EditorContent() {
     const handleEnded = () => {
       setIsPlaying(false);
       if (selectedClip) {
-        const inPoint = Math.max(0, selectedClip.start_sec - (selectedClip.preview_start_sec ?? 0));
-        video.currentTime = inPoint;
+        const firstActive = getFirstActivePreviewTime(selectedClip, frame);
+        video.currentTime = firstActive;
+        setCurrentTime(firstActive);
         if (isLooping) {
           video.play().catch(() => {});
         }
@@ -289,11 +361,9 @@ function EditorContent() {
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
     };
-  }, [selectedClip, isLooping]);
+  }, [selectedClip, isLooping, frame, getFirstActivePreviewTime, skipCutIfNeeded]);
 
   // 2b. High-precision 60fps playback ticker (requestAnimationFrame)
-  // Menjamin pergerakan kamera Smooth Follow, slider timeline, dan animasi subtitle karaoke
-  // berjalan mulus (60fps) tanpa patah-patah oleh jeda event timeupdate bawaan browser (250ms).
   useEffect(() => {
     if (!isPlaying) return;
     const video = videoRef.current;
@@ -303,16 +373,18 @@ function EditorContent() {
     const tick = () => {
       if (video && !video.paused) {
         const cur = video.currentTime;
-        setCurrentTime(cur);
 
         if (selectedClip) {
           const offset = selectedClip.preview_start_sec ?? 0;
           const inPoint = Math.max(0, selectedClip.start_sec - offset);
           const outPoint = Math.max(inPoint + 0.05, selectedClip.end_sec - offset);
+          const firstActive = getFirstActivePreviewTime(selectedClip, frame);
 
-          if (cur >= outPoint) {
+          const nextPos = skipCutIfNeeded(video, cur, selectedClip, frame);
+          if (nextPos === 'ended') {
             if (isLooping) {
-              video.currentTime = inPoint;
+              video.currentTime = firstActive;
+              setCurrentTime(firstActive);
               video.play().catch(() => {});
             } else {
               video.pause();
@@ -321,7 +393,11 @@ function EditorContent() {
               setIsPlaying(false);
               return;
             }
+          } else {
+            setCurrentTime(nextPos);
           }
+        } else {
+          setCurrentTime(cur);
         }
       }
       rafId = requestAnimationFrame(tick);
@@ -331,7 +407,7 @@ function EditorContent() {
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [isPlaying, isLooping, selectedClip]);
+  }, [isPlaying, isLooping, selectedClip, frame, getFirstActivePreviewTime, skipCutIfNeeded]);
 
   // 3. Play / Pause & Seeking Handlers
   const handlePlayPause = useCallback(() => {
@@ -343,19 +419,21 @@ function EditorContent() {
         const offset = selectedClip.preview_start_sec ?? 0;
         const inPoint = Math.max(0, selectedClip.start_sec - offset);
         const outPoint = Math.max(inPoint + 0.05, selectedClip.end_sec - offset);
+        const firstActive = getFirstActivePreviewTime(selectedClip, frame);
 
-        // Jika playhead sudah di ujung potongan (atau di luar potongan),
-        // reset ke awal potongan klip sebelum play!
-        if (video.currentTime >= outPoint - 0.05 || video.currentTime < inPoint) {
-          video.currentTime = inPoint;
-          setCurrentTime(inPoint);
+        const nextPos = skipCutIfNeeded(video, video.currentTime, selectedClip, frame);
+        if (nextPos === 'ended' || video.currentTime >= outPoint - 0.05 || video.currentTime < inPoint) {
+          video.currentTime = firstActive;
+          setCurrentTime(firstActive);
+        } else if (nextPos !== video.currentTime) {
+          setCurrentTime(nextPos);
         }
       }
       video.play().catch(() => {});
     } else {
       video.pause();
     }
-  }, [selectedClip]);
+  }, [selectedClip, frame, getFirstActivePreviewTime, skipCutIfNeeded]);
 
   const handleSeek = useCallback(
     (time: number) => {
@@ -378,18 +456,64 @@ function EditorContent() {
     (frames: number) => {
       if (!videoRef.current) return;
       const fps = 30;
-      const newTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + frames * (1 / fps)));
+      const offset = selectedClip?.preview_start_sec ?? 0;
+      const inPoint = selectedClip ? Math.max(0, selectedClip.start_sec - offset) : 0;
+      const outPoint = selectedClip ? Math.max(inPoint + 0.05, selectedClip.end_sec - offset) : duration;
+      let newTime = Math.max(inPoint, Math.min(outPoint, videoRef.current.currentTime + frames * (1 / fps)));
+
+      if (selectedClip && frame.cutRanges && frame.cutRanges.length > 0) {
+        const cuts = normalizeCutRanges(selectedClip.start_sec, selectedClip.end_sec, frame.cutRanges);
+        const realTarget = offset + newTime;
+        for (const c of cuts) {
+          if (realTarget > c.start && realTarget < c.end) {
+            newTime = frames >= 0 ? Math.min(outPoint, c.end - offset) : Math.max(inPoint, c.start - offset - 0.01);
+            break;
+          }
+        }
+      }
+
       videoRef.current.currentTime = newTime;
       setCurrentTime(newTime);
     },
-    [duration]
+    [duration, selectedClip, frame.cutRanges]
   );
 
   // Ref untuk mendeteksi perubahan dan timer autosave
   const isDirtyRef = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveAbortRef = useRef<AbortController | null>(null);
+  const activeClipIdRef = useRef<number | null>(null);
 
-  // Fungsi simpan edit ke database
+  useEffect(() => {
+    activeClipIdRef.current = selectedClip?.id ?? null;
+  }, [selectedClip?.id]);
+
+  // Sinkronkan cache array clips agar pindah klip tidak pernah mengembalikan data lama (stale)
+  const syncClipEditInList = useCallback(
+    (
+      clipId: number,
+      segs: CaptionSegment[],
+      st: CaptionStyle,
+      fr: FrameSettings,
+      au: AudioSettings
+    ) => {
+      setClips((prev) =>
+        prev.map((c) =>
+          c.id === clipId
+            ? ({ ...c, caption_segments: segs, style: st, frame: fr, audio: au } as Clip)
+            : c
+        )
+      );
+      setSelectedClip((prev) =>
+        prev && prev.id === clipId
+          ? ({ ...prev, caption_segments: segs, style: st, frame: fr, audio: au } as Clip)
+          : prev
+      );
+    },
+    []
+  );
+
+  // Fungsi simpan edit ke database (dengan AbortController anti race-condition)
   const saveEdits = useCallback(
     async (
       clipId: number,
@@ -399,10 +523,17 @@ function EditorContent() {
       au: AudioSettings
     ) => {
       try {
+        if (saveAbortRef.current) {
+          saveAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        saveAbortRef.current = controller;
+
         setSaveStatus('saving');
         const res = await fetch(`/api/clips/${clipId}/edit`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             caption_segments: segs,
             style: st,
@@ -412,20 +543,26 @@ function EditorContent() {
         });
 
         if (res.ok) {
-          isDirtyRef.current = false;
-          setSaveStatus('saved');
-          const now = new Date();
-          setLastSavedTime(
-            `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
-          );
-        } else {
+          syncClipEditInList(clipId, segs, st, fr, au);
+          if (activeClipIdRef.current === clipId) {
+            isDirtyRef.current = false;
+            setSaveStatus('saved');
+            const now = new Date();
+            setLastSavedTime(
+              `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+            );
+          }
+        } else if (activeClipIdRef.current === clipId) {
           setSaveStatus('unsaved');
         }
-      } catch {
-        setSaveStatus('unsaved');
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        if (activeClipIdRef.current === clipId) {
+          setSaveStatus('unsaved');
+        }
       }
     },
-    []
+    [syncClipEditInList]
   );
 
   // Simpan secara instan (misal saat buka modal ekspor atau ganti klip)
@@ -489,9 +626,10 @@ function EditorContent() {
       historyIndexRef.current -= 1;
       const target = historyRef.current[historyIndexRef.current];
 
-      // Jika membatalkan aksi split, hapus klip split pecahan yang tersimpan di DB
+      // Jika membatalkan aksi split-to-new-clip, hapus klip pecahan di DB dan pangkas redo stack agar tidak menghasilkan klip hantu 404
       if (currentState?.createdSplitClipId) {
         fetch(`/api/clips/${currentState.createdSplitClipId}`, { method: 'DELETE' }).catch(() => {});
+        historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
       }
 
       // 1. Restore clips array
@@ -628,58 +766,76 @@ function EditorContent() {
     };
   }, [captionSegments, style, frame, audio, selectedClip, saveEdits]);
 
-  // 6. Keyboard Shortcuts (Space, Ctrl+Z, Ctrl+Y, Arrows)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Abaikan jika fokus di input / textarea
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+  // Update handlers dari panel inspector (langsung commit ke Undo stack)
+  const handleUpdateSegments = useCallback(
+    (newSegments: CaptionSegment[]) => {
+      setCaptionSegments(newSegments);
+      pushHistory({ captionSegments: newSegments }, 'Update Segments');
+    },
+    [pushHistory]
+  );
 
-      if (e.code === 'Space') {
-        e.preventDefault();
-        handlePlayPause();
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        handleStepFrame(-1);
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        handleStepFrame(1);
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) handleRedo();
-        else handleUndo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleRedo();
-      } else if (e.key === 'l' || e.key === 'L') {
-        setIsLooping((prev) => !prev);
-      }
-    };
+  const handleUpdateStyle = useCallback(
+    (newStyle: CaptionStyle) => {
+      setStyle(newStyle);
+      pushHistory({ style: newStyle }, 'Update Style');
+    },
+    [pushHistory]
+  );
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handlePlayPause, handleStepFrame, handleUndo, handleRedo]);
+  const handleUpdateFrame = useCallback(
+    (newFrame: FrameSettings) => {
+      setFrame(newFrame);
+      pushHistory({ frame: newFrame }, 'Update Frame');
+    },
+    [pushHistory]
+  );
 
-  // Update handlers dari panel inspector
-  const handleUpdateSegments = (newSegments: CaptionSegment[]) => {
+  // Live preview handlers saat drag (60fps mulus TANPA membanjiri Undo stack)
+  const handlePreviewSegments = useCallback((newSegments: CaptionSegment[]) => {
     setCaptionSegments(newSegments);
-    pushHistory({ captionSegments: newSegments }, 'Update Segments');
-  };
+  }, []);
 
-  const handleUpdateStyle = (newStyle: CaptionStyle) => {
+  const handleCommitSegments = useCallback(
+    (finalSegments: CaptionSegment[], actionName = 'Trim Subtitle') => {
+      setCaptionSegments(finalSegments);
+      pushHistory({ captionSegments: finalSegments }, actionName);
+    },
+    [pushHistory]
+  );
+
+  const handlePreviewStyle = useCallback((newStyle: CaptionStyle) => {
     setStyle(newStyle);
-    pushHistory({ style: newStyle }, 'Update Style');
-  };
+  }, []);
 
-  const handleUpdateFrame = (newFrame: FrameSettings) => {
+  const handlePreviewFrame = useCallback((newFrame: FrameSettings) => {
     setFrame(newFrame);
-    pushHistory({ frame: newFrame }, 'Update Frame');
-  };
+  }, []);
 
-  const handleUpdateAudio = (newAudio: AudioSettings) => {
-    setAudio(newAudio);
-    pushHistory({ audio: newAudio }, 'Update Audio');
-  };
+  // Commit 1 entry Undo saat pointer drag dilepas (OpenCut PreviewTracker pattern)
+  const handleCommitStyle = useCallback(
+    (finalStyle: CaptionStyle, actionName = 'Transform Caption') => {
+      setStyle(finalStyle);
+      pushHistory({ style: finalStyle }, actionName);
+    },
+    [pushHistory]
+  );
+
+  const handleCommitFrame = useCallback(
+    (finalFrame: FrameSettings, actionName = 'Transform Frame') => {
+      setFrame(finalFrame);
+      pushHistory({ frame: finalFrame }, actionName);
+    },
+    [pushHistory]
+  );
+
+  const handleUpdateAudio = useCallback(
+    (newAudio: AudioSettings) => {
+      setAudio(newAudio);
+      pushHistory({ audio: newAudio }, 'Update Audio');
+    },
+    [pushHistory]
+  );
 
   const handleUpdateClipInfo = async (title: string, description: string, hashtags?: string[]) => {
     if (!selectedClip) return;
@@ -792,19 +948,89 @@ function EditorContent() {
     [selectedClip, clips, pushHistory]
   );
 
-  // Split Klip di Titik Playhead (CapCut Style)
-  const handleSplitClip = async (splitSec: number) => {
+  // Non-Destructive Split di Track V1 (OpenCut Style: memecah blok video di timeline yang sama)
+  const handleSplitVideoAt = useCallback(
+    (splitSec: number) => {
+      if (!selectedClip) return;
+      if (splitSec <= selectedClip.start_sec + 0.15 || splitSec >= selectedClip.end_sec - 0.15) return;
+
+      const existingSplits = frame.splitPoints || [];
+      if (existingSplits.some((p) => Math.abs(p - splitSec) < 0.12)) return;
+
+      const nextSplits = [...existingSplits, Number(splitSec.toFixed(3))].sort((a, b) => a - b);
+      const nextFrame: FrameSettings = { ...frame, splitPoints: nextSplits };
+      setFrame(nextFrame);
+      pushHistory({ frame: nextFrame }, 'Split Video Segment');
+      showToast('Video dibagi di playhead — klik potongan lalu tekan Delete untuk menghapus');
+    },
+    [selectedClip, frame, pushHistory, showToast]
+  );
+
+  // Hapus potongan segmen video di V1 (Non-Destructive Cut Range ala OpenCut)
+  const handleDeleteVideoSegment = useCallback(
+    (segStart: number, segEnd: number) => {
+      if (!selectedClip) return;
+      const nextCuts = normalizeCutRanges(selectedClip.start_sec, selectedClip.end_sec, [
+        ...(frame.cutRanges || []),
+        { start: segStart, end: segEnd },
+      ]);
+      const remainingDur = getEffectiveClipDuration(selectedClip.start_sec, selectedClip.end_sec, nextCuts);
+      if (remainingDur < 0.5) {
+        showToast('Minimal 0.5 detik video harus tersisa pada klip');
+        return;
+      }
+
+      const nextFrame: FrameSettings = { ...frame, cutRanges: nextCuts };
+      setFrame(nextFrame);
+      setSelectedElement(null);
+      pushHistory({ frame: nextFrame }, 'Delete Video Segment');
+      showToast('Bagian video dihapus (Ctrl+Z untuk urungkan)');
+
+      // Lompat playhead keluar dari area yang baru dihapus
+      if (videoRef.current) {
+        const offset = selectedClip.preview_start_sec ?? 0;
+        const realCur = offset + videoRef.current.currentTime;
+        if (realCur >= segStart - 0.05 && realCur <= segEnd + 0.05) {
+          const firstActive = getFirstActivePreviewTime(selectedClip, nextFrame);
+          const nextActive = getActiveVideoRanges(selectedClip.start_sec, selectedClip.end_sec, nextCuts).find(
+            (r) => r.start >= segEnd - 0.05
+          );
+          const targetPreview = nextActive ? Math.max(0, nextActive.start - offset) : firstActive;
+          videoRef.current.currentTime = targetPreview;
+          setCurrentTime(targetPreview);
+        }
+      }
+    },
+    [selectedClip, frame, pushHistory, showToast, getFirstActivePreviewTime]
+  );
+
+  // Pulihkan bagian video yang terpotong (Restore Cut Range)
+  const handleRestoreVideoSegment = useCallback(
+    (segStart: number, segEnd: number) => {
+      if (!selectedClip) return;
+      const nextCuts = (frame.cutRanges || []).filter(
+        (c) => !(Math.abs(c.start - segStart) < 0.08 && Math.abs(c.end - segEnd) < 0.08)
+      );
+      const nextFrame: FrameSettings = { ...frame, cutRanges: nextCuts };
+      setFrame(nextFrame);
+      setSelectedElement(null);
+      pushHistory({ frame: nextFrame }, 'Restore Video Segment');
+      showToast('Bagian video dipulihkan');
+    },
+    [selectedClip, frame, pushHistory, showToast]
+  );
+
+  // Ekstrak Bagian 2 ke Klip Baru di Rak Klip (Opsional)
+  const handleSplitClipToNewClip = async (splitSec: number) => {
     if (!selectedClip || !project) return;
     const oldEnd = selectedClip.end_sec;
     if (splitSec <= selectedClip.start_sec || splitSec >= oldEnd) return;
 
-    // 1. Potong klip aktif saat ini sampai batas detik splitSec
     const updatedFirstClip = { ...selectedClip, end_sec: splitSec };
     setSelectedClip(updatedFirstClip);
     const intermediateClips = clips.map((c) => (c.id === selectedClip.id ? updatedFirstClip : c));
     setClips(intermediateClips);
 
-    // Pause dan letakkan playhead di awal klip pertama agar video tidak tembus memutar sisa potongan
     const offset = selectedClip.preview_start_sec ?? 0;
     const inPoint = Math.max(0, selectedClip.start_sec - offset);
     if (videoRef.current) {
@@ -814,7 +1040,6 @@ function EditorContent() {
       setIsPlaying(false);
     }
 
-    // Simpan pemotongan klip pertama ke server
     try {
       await fetch(`/api/clips/${selectedClip.id}`, {
         method: 'PATCH',
@@ -825,7 +1050,6 @@ function EditorContent() {
       console.error('Gagal update klip split pertama:', e);
     }
 
-    // 2. Buat klip kedua dari splitSec sampai oldEnd melalui API clips
     try {
       const res = await fetch(`/api/projects/${project.id}/clips`, {
         method: 'POST',
@@ -848,8 +1072,9 @@ function EditorContent() {
               clips: finalClips,
               createdSplitClipId: data.clip.id,
             },
-            'Split'
+            'Split to New Clip'
           );
+          showToast('Bagian 2 dibuat sebagai klip baru di Rak Klip');
         }
       }
     } catch (e) {
@@ -857,12 +1082,90 @@ function EditorContent() {
     }
   };
 
-  // Hapus Segmen Caption dari Timeline
-  const handleDeleteCaptionSegment = (segmentId: string) => {
-    const nextSegments = captionSegments.filter((s) => s.id !== segmentId);
-    setCaptionSegments(nextSegments);
-    pushHistory({ captionSegments: nextSegments }, 'Delete Caption Segment');
-  };
+  // Hapus Segmen Caption dari Timeline / Canvas
+  const handleDeleteCaptionSegment = useCallback(
+    (segmentId: string) => {
+      const nextSegments = captionSegments.filter((s) => s.id !== segmentId);
+      setCaptionSegments(nextSegments);
+      setSelectedElement((prev) =>
+        prev?.type === 'caption' && prev.segmentId === segmentId ? null : prev
+      );
+      pushHistory({ captionSegments: nextSegments }, 'Delete Caption Segment');
+      showToast('Baris subtitel dihapus (Ctrl+Z untuk urungkan)');
+    },
+    [captionSegments, pushHistory, showToast]
+  );
+
+  // Hapus / Nonaktifkan Teks Tambahan (Hook Title)
+  const handleDeleteHookTitle = useCallback(() => {
+    if (!frame.hookTitle?.enabled) return;
+    const nextFrame: FrameSettings = {
+      ...frame,
+      hookTitle: { ...frame.hookTitle, enabled: false },
+    };
+    setFrame(nextFrame);
+    setSelectedElement(null);
+    pushHistory({ frame: nextFrame }, 'Delete Hook Title');
+    showToast('Teks tambahan dihapus (Ctrl+Z untuk urungkan)');
+  }, [frame, pushHistory, showToast]);
+
+  // Hapus / Nonaktifkan Watermark
+  const handleDeleteWatermark = useCallback(() => {
+    if (!frame.watermark?.enabled) return;
+    const nextFrame: FrameSettings = {
+      ...frame,
+      watermark: { ...frame.watermark, enabled: false },
+    };
+    setFrame(nextFrame);
+    setSelectedElement(null);
+    pushHistory({ frame: nextFrame }, 'Delete Watermark');
+    showToast('Watermark dihapus (Ctrl+Z untuk urungkan)');
+  }, [frame, pushHistory, showToast]);
+
+  // Universal Delete Action (OpenCut DeleteElementsCommand equivalent)
+  const handleDeleteSelectedElement = useCallback(() => {
+    if (!selectedElement) return;
+    if (selectedElement.type === 'hookTitle') {
+      handleDeleteHookTitle();
+    } else if (selectedElement.type === 'watermark') {
+      handleDeleteWatermark();
+    } else if (selectedElement.type === 'caption') {
+      // Prioritaskan baris caption yang sedang tampil di layar pada detik ini agar tidak pernah menghapus baris lama (stale)
+      const realSec = (selectedClip?.preview_start_sec ?? 0) + currentTime;
+      const visibleGrp = buildGroups(captionSegments, style.wordsPerLine || 3).find(
+        (g) => realSec >= g.start && realSec <= g.end
+      );
+      const targetSegId = visibleGrp?.segmentId || selectedElement.segmentId;
+      if (targetSegId && captionSegments.some((s) => s.id === targetSegId)) {
+        handleDeleteCaptionSegment(targetSegId);
+      } else {
+        const nextStyle: CaptionStyle = { ...style, enabled: false };
+        setStyle(nextStyle);
+        setSelectedElement(null);
+        pushHistory({ style: nextStyle }, 'Disable Captions');
+        showToast('Subtitel dinonaktifkan (Ctrl+Z untuk urungkan)');
+      }
+    } else if (selectedElement.type === 'videoSegment') {
+      if (selectedElement.isCut) {
+        handleRestoreVideoSegment(selectedElement.start, selectedElement.end);
+      } else {
+        handleDeleteVideoSegment(selectedElement.start, selectedElement.end);
+      }
+    }
+  }, [
+    selectedElement,
+    handleDeleteHookTitle,
+    handleDeleteWatermark,
+    handleDeleteCaptionSegment,
+    handleDeleteVideoSegment,
+    handleRestoreVideoSegment,
+    selectedClip,
+    currentTime,
+    captionSegments,
+    style,
+    pushHistory,
+    showToast,
+  ]);
 
   const handleDeleteClip = async (clipId: number) => {
     try {
@@ -890,10 +1193,13 @@ function EditorContent() {
       saveTimeoutRef.current = null;
     }
     if (selectedClip && isDirtyRef.current && selectedClip.id !== clip.id) {
+      syncClipEditInList(selectedClip.id, captionSegments, style, frame, audio);
       await saveEdits(selectedClip.id, captionSegments, style, frame, audio);
     }
-    setSelectedClip(clip);
-    loadClipState(clip);
+    // Pastikan memakai versi terbaru dari state clips (hindari stale object)
+    const freshClip = clips.find((c) => c.id === clip.id) || clip;
+    setSelectedClip(freshClip);
+    loadClipState(freshClip);
   };
 
   const handleClipCreated = (newClip: Clip) => {
@@ -901,6 +1207,139 @@ function EditorContent() {
     setSelectedClip(newClip);
     loadClipState(newClip);
   };
+
+  // Guard sebelum tutup tab browser jika masih ada perubahan yang belum tersimpan ke DB
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirtyRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // 6. Global Editor Keyboard Shortcuts (OpenCut-style: selalu aktif baik saat tab Klip maupun Timeline terbuka!)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        !target ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      const key = e.key;
+      const lower = key.toLowerCase();
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handlePlayPause();
+      } else if (key === 'Delete' || key === 'Backspace') {
+        if (selectedElement) {
+          e.preventDefault();
+          handleDeleteSelectedElement();
+        }
+      } else if (key === 'Escape') {
+        if (selectedElement) {
+          e.preventDefault();
+          setSelectedElement(null);
+        }
+      } else if (key === 'ArrowLeft') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleSeek(currentTime - 5);
+        } else {
+          handleStepFrame(-1);
+        }
+      } else if (key === 'ArrowRight') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleSeek(currentTime + 5);
+        } else {
+          handleStepFrame(1);
+        }
+      } else if (key === 'Home') {
+        if (selectedClip) {
+          e.preventDefault();
+          handleSeek(getFirstActivePreviewTime(selectedClip, frame));
+        }
+      } else if (key === 'End') {
+        if (selectedClip) {
+          e.preventDefault();
+          const offset = selectedClip.preview_start_sec ?? 0;
+          const outPoint = Math.max(0, selectedClip.end_sec - offset);
+          handleSeek(Math.max(0, outPoint - 0.05));
+        }
+      } else if ((e.ctrlKey || e.metaKey) && lower === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && lower === 'y') {
+        e.preventDefault();
+        handleRedo();
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (lower === 'k') {
+          e.preventDefault();
+          handlePlayPause();
+        } else if (lower === 'l') {
+          setIsLooping((prev) => !prev);
+        } else if (lower === 'f') {
+          e.preventDefault();
+          toggleFullscreenRef.current?.();
+        } else if (lower === 's' || lower === 'c') {
+          if (selectedClip) {
+            const realSec = (selectedClip.preview_start_sec ?? 0) + currentTime;
+            if (realSec > selectedClip.start_sec + 0.15 && realSec < selectedClip.end_sec - 0.15) {
+              e.preventDefault();
+              handleSplitVideoAt(realSec);
+            }
+          }
+        } else if (key === '[' || lower === 'q') {
+          if (selectedClip) {
+            e.preventDefault();
+            const realSec = (selectedClip.preview_start_sec ?? 0) + currentTime;
+            const newStart = Math.max(0, Math.min(selectedClip.end_sec - 1, realSec));
+            handleTrimChange(newStart, selectedClip.end_sec);
+            handleTrimCommit(newStart, selectedClip.end_sec);
+          }
+        } else if (key === ']' || lower === 'w') {
+          if (selectedClip) {
+            e.preventDefault();
+            const realSec = (selectedClip.preview_start_sec ?? 0) + currentTime;
+            const maxSec = duration + (selectedClip.preview_start_sec ?? 0);
+            const newEnd = Math.max(selectedClip.start_sec + 1, Math.min(maxSec, realSec));
+            handleTrimChange(selectedClip.start_sec, newEnd);
+            handleTrimCommit(selectedClip.start_sec, newEnd);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    handlePlayPause,
+    handleStepFrame,
+    handleUndo,
+    handleRedo,
+    handleDeleteSelectedElement,
+    handleSplitVideoAt,
+    handleTrimChange,
+    handleTrimCommit,
+    handleSeek,
+    getFirstActivePreviewTime,
+    selectedElement,
+    selectedClip,
+    frame,
+    currentTime,
+    duration,
+  ]);
 
   if (loading) {
     return (
@@ -940,7 +1379,17 @@ function EditorContent() {
         <div className="editor-toolbar-inner h-14 w-full pl-2 pr-[18px] flex items-center justify-between gap-4">
           {/* Left: Brand & File Menus */}
           <div className="flex items-center gap-4 flex-shrink-0">
-            <Link href="/" className="flex items-center gap-2.5 group">
+            <Link
+              href="/"
+              onClick={async (e) => {
+                if (isDirtyRef.current) {
+                  e.preventDefault();
+                  await saveEditsInstantly();
+                  router.push('/');
+                }
+              }}
+              className="flex items-center gap-2.5 group"
+            >
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center group-hover:scale-105 transition-transform text-on-primary shadow-xs">
                 <Scissors className="w-4 h-4" />
               </div>
@@ -1096,14 +1545,27 @@ function EditorContent() {
               isLooping={isLooping}
               safeGuides={safeGuides}
               videoRef={videoRef}
+              selectedElement={selectedElement}
+              onSelectElement={setSelectedElement}
+              onDeleteSelectedElement={handleDeleteSelectedElement}
+              onDeleteCaptionSegment={handleDeleteCaptionSegment}
+              onDeleteHookTitle={handleDeleteHookTitle}
+              onDeleteWatermark={handleDeleteWatermark}
               onPlayPause={handlePlayPause}
               onSeek={handleSeek}
               onStepFrame={handleStepFrame}
               onToggleLoop={() => setIsLooping(!isLooping)}
               onToggleSafeGuides={() => setSafeGuides(!safeGuides)}
               onUpdateFrame={handleUpdateFrame}
+              onPreviewFrame={handlePreviewFrame}
+              onCommitFrame={handleCommitFrame}
               onUpdateStyle={handleUpdateStyle}
+              onPreviewStyle={handlePreviewStyle}
+              onCommitStyle={handleCommitStyle}
               onUpdateSegments={handleUpdateSegments}
+              onRegisterFullscreenToggle={(fn) => {
+                toggleFullscreenRef.current = fn;
+              }}
               isCinemaMode={isCinemaMode}
               onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
               isLeftPanelCollapsed={isLeftPanelCollapsed}
@@ -1157,15 +1619,30 @@ function EditorContent() {
                 {bottomView === 'timeline' && (
                   <TimelineTrack
                     clip={selectedClip}
+                    frame={frame}
                     captionSegments={captionSegments}
                     peaks={peaks}
                     currentTime={currentTime}
                     duration={duration}
+                    isPlaying={isPlaying}
+                    selectedElement={selectedElement}
+                    onSelectElement={setSelectedElement}
+                    onDeleteSelectedElement={handleDeleteSelectedElement}
                     onSeek={handleSeek}
                     onTrimChange={handleTrimChange}
                     onTrimCommit={handleTrimCommit}
-                    onSplitClip={handleSplitClip}
+                    onSplitVideo={handleSplitVideoAt}
+                    onSplitToNewClip={handleSplitClipToNewClip}
+                    onDeleteVideoSegment={handleDeleteVideoSegment}
+                    onRestoreVideoSegment={handleRestoreVideoSegment}
                     onDeleteCaptionSegment={handleDeleteCaptionSegment}
+                    onDeleteHookTitle={handleDeleteHookTitle}
+                    onDeleteWatermark={handleDeleteWatermark}
+                    onUpdateFrame={handleUpdateFrame}
+                    onPreviewFrame={handlePreviewFrame}
+                    onCommitFrame={handleCommitFrame}
+                    onPreviewSegments={handlePreviewSegments}
+                    onCommitSegments={handleCommitSegments}
                     canUndo={canUndo}
                     canRedo={canRedo}
                     onUndo={handleUndo}
@@ -1182,6 +1659,10 @@ function EditorContent() {
                     onDeleteClip={handleDeleteClip}
                     onOpenManualClip={() => setIsManualClipOpen(true)}
                     onOpenBatchExport={() => setIsBatchExportOpen(true)}
+                    onExportClip={async (clipToExport) => {
+                      await handleSelectClip(clipToExport);
+                      setIsExportOpen(true);
+                    }}
                   />
                 )}
               </div>
@@ -1246,8 +1727,17 @@ function EditorContent() {
         onClose={() => setIsManualClipOpen(false)}
         projectId={Number(projectId)}
         maxDuration={project.duration_sec || 0}
+        heatmap={heatmap}
         onClipCreated={handleClipCreated}
       />
+
+      {/* Action Feedback Toast (OpenCut-style confirmation) */}
+      {actionToast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-full bg-surface-container-highest/95 backdrop-blur-md border border-primary/40 text-on-surface text-xs font-semibold shadow-2xl flex items-center gap-2 pointer-events-none animate-in fade-in slide-in-from-bottom-2">
+          <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+          <span>{actionToast}</span>
+        </div>
+      )}
     </div>
   );
 }

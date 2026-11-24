@@ -355,8 +355,8 @@ def local_model_cached(model: str) -> bool:
     try:
         from faster_whisper.utils import download_model
 
-        download_model(model, output_dir=str(config.MODELS_DIR), local_files_only=True)
-        return True
+        model_dir = Path(download_model(model, cache_dir=str(config.MODELS_DIR), local_files_only=True))
+        return (model_dir / "model.bin").exists()
     except Exception:
         return False
 

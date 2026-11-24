@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Clip } from '@/lib/types';
-import { formatDuration } from '@/lib/captions';
+import { formatDuration, getEffectiveClipDuration } from '@/lib/captions';
 import {
   Film,
   TrendingUp,
@@ -23,6 +23,7 @@ interface ClipShelfProps {
   onDeleteClip: (clipId: number) => void;
   onOpenManualClip: () => void;
   onOpenBatchExport?: () => void;
+  onExportClip?: (clip: Clip) => void;
 }
 
 export function ClipShelf({
@@ -33,6 +34,7 @@ export function ClipShelf({
   onDeleteClip,
   onOpenManualClip,
   onOpenBatchExport,
+  onExportClip,
 }: ClipShelfProps) {
   const [filter, setFilter] = useState<'all' | 'viral' | 'fav'>('all');
   const rowRef = useRef<HTMLDivElement>(null);
@@ -180,7 +182,7 @@ export function ClipShelf({
       >
         {filteredClips.map((clip) => {
           const isSelected = clip.id === selectedClipId;
-          const dur = (clip.end_sec - clip.start_sec) || 30;
+          const dur = getEffectiveClipDuration(clip.start_sec, clip.end_sec, (clip as any).frame?.cutRanges) || 30;
           const thumbUrl = clip.thumbnail_path ? `/api/files/${clip.thumbnail_path}` : '';
 
           return (
@@ -254,17 +256,29 @@ export function ClipShelf({
                     {clip.title || `Klip #${clip.id}`}
                   </span>
                   <div className="flex items-center gap-0.5 shrink-0">
-                    {(clip.export_path || clip.preview_path) && (
+                    {clip.export_path ? (
                       <a
-                        href={`/api/files/${clip.export_path || clip.preview_path}`}
-                        download={`${(clip.title || `clip_${clip.id}`).replace(/[^\w\s-]/g, '')}_1080p.mp4`}
+                        href={`/api/files/${clip.export_path}`}
+                        download={`${(clip.title || `clip_${clip.id}`).replace(/[^\w\s-]/g, '')}_export.mp4`}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-outline hover:text-secondary p-0.5 transition-colors"
-                        title="Download Klip HD 1080p (MP4)"
+                        className="text-emerald-400 hover:text-emerald-300 p-0.5 transition-colors"
+                        title="Unduh Hasil Render Final MP4"
                       >
                         <Download className="w-3 h-3" />
                       </a>
-                    )}
+                    ) : onExportClip ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onExportClip(clip);
+                        }}
+                        className="text-outline hover:text-primary p-0.5 transition-colors cursor-pointer"
+                        title="Render & Ekspor Klip Final MP4 (1080p/720p)"
+                      >
+                        <Download className="w-3 h-3" />
+                      </button>
+                    ) : null}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { Clip, CaptionStyle, FrameSettings, AudioSettings, CaptionSegment } from '@/lib/types';
-import { buildGroups, formatTimecode, getVideoFilterCss } from '@/lib/captions';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import { Clip, CaptionStyle, FrameSettings, AudioSettings, CaptionSegment, EditorSelection } from '@/lib/types';
+import { buildGroups, formatTimecode, getVideoFilterCss, normalizeCutRanges, getActiveVideoRanges } from '@/lib/captions';
 import { PlatformGuidesOverlay } from './PlatformGuidesOverlay';
 import {
   PanelLeftClose,
@@ -29,6 +29,10 @@ import {
   GripVertical,
   ChevronLeft,
   ChevronRight,
+  Trash2,
+  AlignCenter,
+  RotateCcw,
+  Pencil,
 } from 'lucide-react';
 
 interface CanvasViewportProps {
@@ -43,14 +47,25 @@ interface CanvasViewportProps {
   isLooping: boolean;
   safeGuides: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  selectedElement?: EditorSelection;
+  onSelectElement?: (sel: EditorSelection) => void;
+  onDeleteSelectedElement?: () => void;
+  onDeleteCaptionSegment?: (segmentId: string) => void;
+  onDeleteHookTitle?: () => void;
+  onDeleteWatermark?: () => void;
   onPlayPause: () => void;
   onSeek: (time: number) => void;
   onStepFrame: (frames: number) => void;
   onToggleLoop: () => void;
   onToggleSafeGuides: () => void;
   onUpdateFrame: (frame: FrameSettings) => void;
+  onPreviewFrame?: (frame: FrameSettings) => void;
+  onCommitFrame?: (frame: FrameSettings, actionName?: string) => void;
   onUpdateStyle?: (style: CaptionStyle) => void;
+  onPreviewStyle?: (style: CaptionStyle) => void;
+  onCommitStyle?: (style: CaptionStyle, actionName?: string) => void;
   onUpdateSegments?: (segments: CaptionSegment[]) => void;
+  onRegisterFullscreenToggle?: (fn: () => void) => void;
   isCinemaMode?: boolean;
   onToggleCinemaMode?: () => void;
   isLeftPanelCollapsed?: boolean;
@@ -69,14 +84,25 @@ export function CanvasViewport({
   isLooping,
   safeGuides,
   videoRef,
+  selectedElement = null,
+  onSelectElement,
+  onDeleteSelectedElement,
+  onDeleteCaptionSegment,
+  onDeleteHookTitle,
+  onDeleteWatermark,
   onPlayPause,
   onSeek,
   onStepFrame,
   onToggleLoop,
   onToggleSafeGuides,
   onUpdateFrame,
+  onPreviewFrame,
+  onCommitFrame,
   onUpdateStyle = () => {},
+  onPreviewStyle,
+  onCommitStyle,
   onUpdateSegments,
+  onRegisterFullscreenToggle,
   isCinemaMode = false,
   onToggleCinemaMode,
   isLeftPanelCollapsed = false,
@@ -85,28 +111,57 @@ export function CanvasViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const liveFrame = onPreviewFrame || onUpdateFrame;
+  const commitFrame = onCommitFrame || onUpdateFrame;
+  const liveStyle = onPreviewStyle || onUpdateStyle;
+  const commitStyle = onCommitStyle || onUpdateStyle;
+  const latestFrameRef = useRef<FrameSettings>(frame);
+  const latestStyleRef = useRef<CaptionStyle>(style);
+  useEffect(() => {
+    latestFrameRef.current = frame;
+  }, [frame]);
+  useEffect(() => {
+    latestStyleRef.current = style;
+  }, [style]);
+
   const captionDragRef = useRef<{
     mode: 'move' | 'resize' | 'rotate';
     pointerId: number;
     startX: number;
     startY: number;
+    startPositionX: number;
     startPositionY: number;
     startFontSize: number;
     startRotation: number;
     centerScreenX: number;
     centerScreenY: number;
+    hasMoved: boolean;
   } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState<'fit' | '75%' | '100%' | '125%' | '150%'>('fit');
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-  const [captionSelected, setCaptionSelected] = useState(false);
+  const captionSelected = selectedElement?.type === 'caption';
+  const headlineSelected = selectedElement?.type === 'hookTitle';
+  const watermarkSelected = selectedElement?.type === 'watermark';
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    target: 'caption' | 'hookTitle' | 'watermark';
+  } | null>(null);
   const [activeSnapGuides, setActiveSnapGuides] = useState<{
+    x?: { position: number; label: string };
     y?: { position: number; label: string };
   } | null>(null);
   const [isEditingInPlace, setIsEditingInPlace] = useState(false);
   const [inPlaceEditText, setInPlaceEditText] = useState('');
+  const [editingOverlay, setEditingOverlay] = useState<'hookTitle' | 'watermark' | null>(null);
+  const [overlayEditText, setOverlayEditText] = useState('');
+  const wheelCommitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bgVideoRef = useRef<HTMLVideoElement>(null);
   const splitBottomVideoRef = useRef<HTMLVideoElement>(null);
+  const splitTopBgVideoRef = useRef<HTMLVideoElement>(null);
+  const splitBotBgVideoRef = useRef<HTMLVideoElement>(null);
+  const socialBgVideoRef = useRef<HTMLVideoElement>(null);
 
   // Timeline Scrubber State (OpenCut & CapCut Style Video Scrubber)
   const scrubberTrackRef = useRef<HTMLDivElement>(null);
@@ -116,11 +171,21 @@ export function CanvasViewport({
   const [hoverTime, setHoverTime] = useState(0);
 
   const previewOffset = clip?.preview_start_sec ?? 0;
-  const inPoint = clip ? Math.max(0, (clip.start_sec || 0) - previewOffset) : 0;
-  const outPoint = clip ? Math.max(inPoint + 0.1, (clip.end_sec || 0) - previewOffset) : (duration || 60);
+  const clipStartSec = clip?.start_sec ?? 0;
+  const clipEndSec = clip?.end_sec ?? (duration || 60);
+  const inPoint = clip ? Math.max(0, clipStartSec - previewOffset) : 0;
+  const outPoint = clip ? Math.max(inPoint + 0.1, clipEndSec - previewOffset) : (duration || 60);
   const clipDuration = Math.max(0.1, outPoint - inPoint);
   const relativeTime = Math.max(0, Math.min(clipDuration, currentTime - inPoint));
   const progressPct = Math.min(100, Math.max(0, (relativeTime / clipDuration) * 100));
+  const normalizedCuts = useMemo(
+    () => normalizeCutRanges(clipStartSec, clipEndSec, frame.cutRanges),
+    [clipStartSec, clipEndSec, frame.cutRanges]
+  );
+  const firstActiveInPoint = useMemo(() => {
+    const active = getActiveVideoRanges(clipStartSec, clipEndSec, frame.cutRanges);
+    return active.length > 0 ? Math.max(inPoint, active[0].start - previewOffset) : inPoint;
+  }, [clipStartSec, clipEndSec, frame.cutRanges, inPoint, previewOffset]);
 
   // displayPct & displayTime selalu menyatu dan 100% sinkron baik saat playback maupun saat user menggeser kursor
   const displayPct = isScrubbing && scrubPct !== null ? scrubPct : progressPct;
@@ -176,56 +241,53 @@ export function CanvasViewport({
     }
   };
 
-  // Sync background duplicate video (Fit + Blur) and bottom video (Podcast Split)
+  // Sync all duplicate background / split videos (Fit+Blur, Podcast Split, Social Blur)
   useEffect(() => {
-    if (frame.mode !== 'fit_blur' && frame.mode !== 'split') return;
+    if (frame.mode !== 'fit_blur' && frame.mode !== 'split' && frame.mode !== 'social') return;
     const mainEl = videoRef.current;
-    const bgEl = bgVideoRef.current;
-    const splitEl = splitBottomVideoRef.current;
     if (!mainEl) return;
 
-    const syncEl = (el: HTMLVideoElement | null) => {
-      if (!el) return;
-      if (Math.abs(el.currentTime - mainEl.currentTime) > 0.08) {
-        el.currentTime = mainEl.currentTime;
-      }
+    const getSlaveEls = (): HTMLVideoElement[] => {
+      const list: Array<HTMLVideoElement | null> = [];
+      if (frame.mode === 'fit_blur') list.push(bgVideoRef.current);
+      if (frame.mode === 'split') list.push(splitBottomVideoRef.current, splitTopBgVideoRef.current, splitBotBgVideoRef.current);
+      if (frame.mode === 'social') list.push(socialBgVideoRef.current);
+      return list.filter((el): el is HTMLVideoElement => Boolean(el));
     };
 
     const syncTime = () => {
-      if (frame.mode === 'fit_blur') syncEl(bgEl);
-      if (frame.mode === 'split') syncEl(splitEl);
+      for (const el of getSlaveEls()) {
+        if (Math.abs(el.currentTime - mainEl.currentTime) > 0.08) {
+          el.currentTime = mainEl.currentTime;
+        }
+      }
     };
 
     const handlePlay = () => {
-      if (frame.mode === 'fit_blur' && bgEl) {
-        bgEl.currentTime = mainEl.currentTime;
-        bgEl.play().catch(() => {});
-      }
-      if (frame.mode === 'split' && splitEl) {
-        splitEl.currentTime = mainEl.currentTime;
-        splitEl.play().catch(() => {});
+      for (const el of getSlaveEls()) {
+        el.currentTime = mainEl.currentTime;
+        el.playbackRate = mainEl.playbackRate;
+        el.play().catch(() => {});
       }
     };
 
     const handlePause = () => {
-      if (bgEl) {
-        bgEl.pause();
-        bgEl.currentTime = mainEl.currentTime;
-      }
-      if (splitEl) {
-        splitEl.pause();
-        splitEl.currentTime = mainEl.currentTime;
+      for (const el of getSlaveEls()) {
+        el.pause();
+        el.currentTime = mainEl.currentTime;
       }
     };
 
     const handleSeeking = () => {
-      if (bgEl) bgEl.currentTime = mainEl.currentTime;
-      if (splitEl) splitEl.currentTime = mainEl.currentTime;
+      for (const el of getSlaveEls()) {
+        el.currentTime = mainEl.currentTime;
+      }
     };
 
     const handleRateChange = () => {
-      if (bgEl) bgEl.playbackRate = mainEl.playbackRate;
-      if (splitEl) splitEl.playbackRate = mainEl.playbackRate;
+      for (const el of getSlaveEls()) {
+        el.playbackRate = mainEl.playbackRate;
+      }
     };
 
     mainEl.addEventListener('play', handlePlay);
@@ -236,15 +298,11 @@ export function CanvasViewport({
     mainEl.addEventListener('ratechange', handleRateChange);
 
     // Initial state sync
-    if (frame.mode === 'fit_blur' && bgEl) {
-      bgEl.currentTime = mainEl.currentTime;
-      if (!mainEl.paused) bgEl.play().catch(() => {});
-      else bgEl.pause();
-    }
-    if (frame.mode === 'split' && splitEl) {
-      splitEl.currentTime = mainEl.currentTime;
-      if (!mainEl.paused) splitEl.play().catch(() => {});
-      else splitEl.pause();
+    for (const el of getSlaveEls()) {
+      el.currentTime = mainEl.currentTime;
+      el.playbackRate = mainEl.playbackRate;
+      if (!mainEl.paused) el.play().catch(() => {});
+      else el.pause();
     }
 
     return () => {
@@ -284,11 +342,13 @@ export function CanvasViewport({
 
   const beginCaptionDrag = (event: React.PointerEvent<HTMLDivElement | HTMLButtonElement>) => {
     if (!canvasRef.current) return;
+    const targetEl = event.target as HTMLElement;
+    if (targetEl.closest('[data-element-action]')) return;
     event.preventDefault();
     event.stopPropagation();
-    setCaptionSelected(true);
+    setContextMenu(null);
+    onSelectElement?.({ type: 'caption', segmentId: activeGroup?.segmentId });
 
-    const targetEl = event.target as HTMLElement;
     let mode: 'move' | 'resize' | 'rotate' = 'move';
     if (targetEl.closest('[data-caption-rotate]')) {
       mode = 'rotate';
@@ -306,11 +366,13 @@ export function CanvasViewport({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      startPositionX: style.positionX ?? 50,
       startPositionY: style.positionY ?? 72,
       startFontSize: style.fontSize || 84,
       startRotation: style.rotation ?? 0,
       centerScreenX,
       centerScreenY,
+      hasMoved: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -319,6 +381,11 @@ export function CanvasViewport({
     const drag = captionDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !canvasRef.current) return;
 
+    if (!drag.hasMoved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 2) {
+      drag.hasMoved = true;
+    }
+    if (!drag.hasMoved) return;
+
     if (drag.mode === 'rotate') {
       const dx = event.clientX - drag.centerScreenX;
       const dy = event.clientY - drag.centerScreenY;
@@ -326,48 +393,60 @@ export function CanvasViewport({
       let angleDeg = Math.round((angleRad * 180) / Math.PI + 90);
       if (angleDeg > 180) angleDeg -= 360;
       if (angleDeg < -180) angleDeg += 360;
-      // Snap magnetik ke 0° (datar rata air) jika dalam toleransi ±2.5°
       if (Math.abs(angleDeg) <= 2.5) {
         angleDeg = 0;
       }
       const clamped = Math.max(-35, Math.min(35, angleDeg));
-      onUpdateStyle?.({ ...style, rotation: clamped });
+      liveStyle({ ...latestStyleRef.current, rotation: clamped });
     } else if (drag.mode === 'move') {
-      const height = canvasRef.current.getBoundingClientRect().height;
-      if (!height) return;
-      let rawPosY = drag.startPositionY + ((event.clientY - drag.startY) / height) * 100;
+      const bounds = canvasRef.current.getBoundingClientRect();
+      if (!bounds.height || !bounds.width) return;
+      let rawPosX = drag.startPositionX + ((event.clientX - drag.startX) / bounds.width) * 100;
+      let rawPosY = drag.startPositionY + ((event.clientY - drag.startY) / bounds.height) * 100;
+      rawPosX = Math.max(12, Math.min(88, rawPosX));
       rawPosY = Math.max(8, Math.min(92, rawPosY));
 
-      // Snap guides titik penting vertikal (OpenCut Magnetic Snap)
-      const snapPoints = [
+      // Magnetic Center X & Y snap guides (OpenCut style)
+      let snappedX = rawPosX;
+      let activeGuideX: { position: number; label: string } | undefined;
+      if (Math.abs(rawPosX - 50) <= 2.5) {
+        snappedX = 50;
+        activeGuideX = { position: 50, label: 'Tengah X (50%)' };
+      }
+
+      const snapPointsY = [
         { val: 50, label: 'Tengah Layar (50%)' },
         { val: 72, label: 'Lower Third (72%)' },
         { val: 80, label: 'Area Bawah (80%)' },
         { val: 25, label: 'Area Atas (25%)' },
       ];
       let snappedY: number = rawPosY;
-      let activeGuide: { position: number; label: string } | undefined;
+      let activeGuideY: { position: number; label: string } | undefined;
 
-      for (const sp of snapPoints) {
-        if (Math.abs(rawPosY - sp.val) <= 1.5) {
+      for (const sp of snapPointsY) {
+        if (Math.abs(rawPosY - sp.val) <= 1.8) {
           snappedY = sp.val;
-          activeGuide = { position: sp.val, label: sp.label };
+          activeGuideY = { position: sp.val, label: sp.label };
           break;
         }
       }
 
-      setActiveSnapGuides(activeGuide ? { y: activeGuide } : null);
-      onUpdateStyle?.({ ...style, positionY: Math.round(snappedY) });
+      setActiveSnapGuides(activeGuideX || activeGuideY ? { x: activeGuideX, y: activeGuideY } : null);
+      liveStyle({ ...latestStyleRef.current, positionX: Math.round(snappedX), positionY: Math.round(snappedY) });
     } else {
       const referenceHeight = canvasSize.height || 640;
       const delta = Math.max(event.clientX - drag.startX, event.clientY - drag.startY);
       const fontSize = Math.max(40, Math.min(140, drag.startFontSize + (delta * 1920 / referenceHeight) * 0.45));
-      onUpdateStyle?.({ ...style, fontSize: Math.round(fontSize) });
+      liveStyle({ ...latestStyleRef.current, fontSize: Math.round(fontSize) });
     }
   };
 
   const finishCaptionDrag = (event: React.PointerEvent<HTMLDivElement | HTMLButtonElement>) => {
-    if (captionDragRef.current?.pointerId === event.pointerId) {
+    const drag = captionDragRef.current;
+    if (drag?.pointerId === event.pointerId) {
+      if (drag.hasMoved) {
+        commitStyle(latestStyleRef.current, drag.mode === 'rotate' ? 'Rotate Caption' : drag.mode === 'resize' ? 'Resize Caption' : 'Move Caption');
+      }
       captionDragRef.current = null;
       setActiveSnapGuides(null);
     }
@@ -441,27 +520,28 @@ export function CanvasViewport({
     const pctX = (dx / width) * 100;
     const pctY = (dy / height) * 100;
 
-    if (frame.mode === 'fit_blur' || frame.mode === 'fit') {
+    const curFr = latestFrameRef.current;
+    if (curFr.mode === 'fit_blur' || curFr.mode === 'fit') {
       const nextX = Math.max(-85, Math.min(85, Math.round(drag.startOffsetX + pctX)));
       const nextY = Math.max(-60, Math.min(60, Math.round(drag.startOffsetY + pctY)));
-      onUpdateFrame({ ...frame, offsetX: nextX, offsetY: nextY });
-    } else if (frame.mode === 'social') {
+      liveFrame({ ...curFr, offsetX: nextX, offsetY: nextY });
+    } else if (curFr.mode === 'social') {
       const nextX = Math.max(-85, Math.min(85, Math.round(drag.startOffsetX + pctX)));
       const nextY = Math.max(-60, Math.min(60, Math.round(drag.startOffsetY + pctY)));
-      onUpdateFrame({ ...frame, offsetX: nextX, offsetY: nextY });
-    } else if (frame.mode === 'crop') {
+      liveFrame({ ...curFr, offsetX: nextX, offsetY: nextY });
+    } else if (curFr.mode === 'crop') {
       const nextX = Math.max(-85, Math.min(85, Math.round(drag.startOffsetX - pctX)));
       const nextY = Math.max(-60, Math.min(60, Math.round(drag.startOffsetY + pctY)));
-      onUpdateFrame({ ...frame, offsetX: nextX, offsetY: nextY });
-    } else if (frame.mode === 'split') {
+      liveFrame({ ...curFr, offsetX: nextX, offsetY: nextY });
+    } else if (curFr.mode === 'split') {
       if (drag.isSplitTop) {
         const nextX = Math.max(-85, Math.min(85, Math.round((drag.startSplitTopX ?? -25) + pctX)));
         const nextY = Math.max(-60, Math.min(60, Math.round((drag.startSplitTopY ?? 0) + pctY)));
-        onUpdateFrame({ ...frame, splitTopOffsetX: nextX, splitTopOffsetY: nextY });
+        liveFrame({ ...curFr, splitTopOffsetX: nextX, splitTopOffsetY: nextY });
       } else {
         const nextX = Math.max(-85, Math.min(85, Math.round((drag.startSplitBotX ?? 25) + pctX)));
         const nextY = Math.max(-60, Math.min(60, Math.round((drag.startSplitBotY ?? 0) + pctY)));
-        onUpdateFrame({ ...frame, splitBottomOffsetX: nextX, splitBottomOffsetY: nextY });
+        liveFrame({ ...curFr, splitBottomOffsetX: nextX, splitBottomOffsetY: nextY });
       }
     }
   };
@@ -471,26 +551,34 @@ export function CanvasViewport({
     if (!drag || drag.pointerId !== event.pointerId) return;
 
     if (!drag.hasMoved) {
+      onSelectElement?.(null);
+      setContextMenu(null);
       onPlayPause();
+    } else {
+      commitFrame(latestFrameRef.current, 'Pan Video');
     }
 
     videoDragRef.current = null;
     setIsVideoDragging(false);
   };
 
-  // Drag Watermark Logic (Geser Watermark di Kanvas)
+  // Drag Watermark Logic (Geser Watermark di Kanvas + Unified Selection)
   const watermarkDragRef = useRef<{
     pointerId: number;
     startX: number;
     startY: number;
     startPosX: number;
     startPosY: number;
+    hasMoved: boolean;
   } | null>(null);
   const [isWatermarkDragging, setIsWatermarkDragging] = useState(false);
 
   const beginWatermarkDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('[data-element-action]')) return;
     event.preventDefault();
     event.stopPropagation();
+    setContextMenu(null);
+    onSelectElement?.({ type: 'watermark' });
 
     const currX = frame.watermark?.positionX ?? (frame.watermark?.position?.includes('left') ? 15 : 85);
     const currY = frame.watermark?.positionY ?? (frame.watermark?.position?.includes('top') ? 6 : 92);
@@ -501,6 +589,7 @@ export function CanvasViewport({
       startY: event.clientY,
       startPosX: currX,
       startPosY: currY,
+      hasMoved: false,
     };
     setIsWatermarkDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -510,17 +599,29 @@ export function CanvasViewport({
     const drag = watermarkDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !canvasRef.current) return;
 
+    if (!drag.hasMoved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 2) {
+      drag.hasMoved = true;
+    }
+    if (!drag.hasMoved) return;
+
     const bounds = canvasRef.current.getBoundingClientRect();
     const width = bounds.width || 360;
     const height = bounds.height || 640;
 
-    const newX = Math.max(5, Math.min(95, Math.round(((event.clientX - bounds.left) / width) * 100)));
+    let newX = Math.max(5, Math.min(95, Math.round(((event.clientX - bounds.left) / width) * 100)));
     const newY = Math.max(4, Math.min(96, Math.round(((event.clientY - bounds.top) / height) * 100)));
+    if (Math.abs(newX - 50) <= 2.5) {
+      newX = 50;
+      setActiveSnapGuides({ x: { position: 50, label: 'Tengah X (50%)' } });
+    } else {
+      setActiveSnapGuides(null);
+    }
 
-    onUpdateFrame({
-      ...frame,
+    const curFr = latestFrameRef.current;
+    liveFrame({
+      ...curFr,
       watermark: {
-        ...frame.watermark!,
+        ...curFr.watermark!,
         position: 'custom',
         positionX: newX,
         positionY: newY,
@@ -531,24 +632,32 @@ export function CanvasViewport({
   const finishWatermarkDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = watermarkDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.hasMoved) {
+      commitFrame(latestFrameRef.current, 'Move Watermark');
+    }
     watermarkDragRef.current = null;
     setIsWatermarkDragging(false);
+    setActiveSnapGuides(null);
   };
 
-  // Drag Headline / Hook Title Logic (Geser Headline Menggunakan Kursor di Kanvas tanpa Slider)
+  // Drag Headline / Hook Title Logic (Geser Headline Menggunakan Kursor di Kanvas + Unified Selection)
   const headlineDragRef = useRef<{
     pointerId: number;
     startX: number;
     startY: number;
     startPosX: number;
     startPosY: number;
+    hasMoved: boolean;
   } | null>(null);
   const [isHeadlineDragging, setIsHeadlineDragging] = useState(false);
 
   const beginHeadlineDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!canvasRef.current) return;
+    if ((event.target as HTMLElement).closest('[data-element-action]')) return;
     event.preventDefault();
     event.stopPropagation();
+    setContextMenu(null);
+    onSelectElement?.({ type: 'hookTitle' });
 
     const currX = frame.hookTitle?.positionX ?? 50;
     const currY = frame.hookTitle?.positionY ?? 6;
@@ -559,6 +668,7 @@ export function CanvasViewport({
       startY: event.clientY,
       startPosX: currX,
       startPosY: currY,
+      hasMoved: false,
     };
     setIsHeadlineDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -568,30 +678,38 @@ export function CanvasViewport({
     const drag = headlineDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !canvasRef.current) return;
 
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (!drag.hasMoved && Math.hypot(deltaX, deltaY) > 2) {
+      drag.hasMoved = true;
+    }
+    if (!drag.hasMoved) return;
+
     const bounds = canvasRef.current.getBoundingClientRect();
     const width = bounds.width || 360;
     const height = bounds.height || 640;
 
-    const deltaX = event.clientX - drag.startX;
-    const deltaY = event.clientY - drag.startY;
-
     let newX = Math.max(8, Math.min(92, Math.round(drag.startPosX + (deltaX / width) * 100)));
     let newY = Math.max(2, Math.min(92, Math.round(drag.startPosY + (deltaY / height) * 100)));
 
-    // Magnet snap horizontal ke tengah persis (50%)
+    let snapX: { position: number; label: string } | undefined;
+    let snapY: { position: number; label: string } | undefined;
     if (Math.abs(newX - 50) <= 2.5) {
       newX = 50;
+      snapX = { position: 50, label: 'Tengah X (50%)' };
     }
-    // Magnet snap vertikal ke titik populer (6% atas, 12% atas, 50% tengah, 85% bawah)
-    if (Math.abs(newY - 6) <= 1.5) newY = 6;
-    else if (Math.abs(newY - 12) <= 1.5) newY = 12;
-    else if (Math.abs(newY - 50) <= 1.5) newY = 50;
-    else if (Math.abs(newY - 85) <= 1.5) newY = 85;
+    if (Math.abs(newY - 6) <= 1.5) { newY = 6; snapY = { position: 6, label: 'Atas (6%)' }; }
+    else if (Math.abs(newY - 12) <= 1.5) { newY = 12; snapY = { position: 12, label: 'Header (12%)' }; }
+    else if (Math.abs(newY - 50) <= 1.5) { newY = 50; snapY = { position: 50, label: 'Tengah Y (50%)' }; }
+    else if (Math.abs(newY - 85) <= 1.5) { newY = 85; snapY = { position: 85, label: 'Bawah (85%)' }; }
 
-    onUpdateFrame({
-      ...frame,
+    setActiveSnapGuides(snapX || snapY ? { x: snapX, y: snapY } : null);
+
+    const curFr = latestFrameRef.current;
+    liveFrame({
+      ...curFr,
       hookTitle: {
-        ...frame.hookTitle!,
+        ...curFr.hookTitle!,
         positionX: newX,
         positionY: newY,
       },
@@ -601,8 +719,12 @@ export function CanvasViewport({
   const finishHeadlineDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = headlineDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.hasMoved) {
+      commitFrame(latestFrameRef.current, 'Move Hook Title');
+    }
     headlineDragRef.current = null;
     setIsHeadlineDragging(false);
+    setActiveSnapGuides(null);
   };
 
   // Aspect ratio state for the video (default 16/9)
@@ -693,28 +815,20 @@ export function CanvasViewport({
     const nextZoom = Math.min(3.0, Math.max(0.4, drag.startZoom * scaleFactor));
     const rounded = Math.round(nextZoom * 100) / 100;
 
+    const curFr = latestFrameRef.current;
     if (drag.target === 'splitTop') {
-      const current = frame.splitTopZoom ?? frame.zoom ?? 1.0;
+      const current = curFr.splitTopZoom ?? curFr.zoom ?? 1.0;
       if (Math.abs(rounded - current) >= 0.01) {
-        onUpdateFrame({
-          ...frame,
-          splitTopZoom: rounded,
-        });
+        liveFrame({ ...curFr, splitTopZoom: rounded });
       }
     } else if (drag.target === 'splitBottom') {
-      const current = frame.splitBottomZoom ?? frame.zoom ?? 1.0;
+      const current = curFr.splitBottomZoom ?? curFr.zoom ?? 1.0;
       if (Math.abs(rounded - current) >= 0.01) {
-        onUpdateFrame({
-          ...frame,
-          splitBottomZoom: rounded,
-        });
+        liveFrame({ ...curFr, splitBottomZoom: rounded });
       }
     } else {
-      if (Math.abs(rounded - (frame.zoom || 1.0)) >= 0.01) {
-        onUpdateFrame({
-          ...frame,
-          zoom: rounded,
-        });
+      if (Math.abs(rounded - (curFr.zoom || 1.0)) >= 0.01) {
+        liveFrame({ ...curFr, zoom: rounded });
       }
     }
   };
@@ -722,6 +836,7 @@ export function CanvasViewport({
   const finishZoomResize = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = zoomResizeRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    commitFrame(latestFrameRef.current, 'Zoom Video');
     zoomResizeRef.current = null;
     setIsZoomResizing(false);
   };
@@ -756,9 +871,10 @@ export function CanvasViewport({
     const deltaY = event.clientY - drag.startY;
     const deltaYPct = (deltaY / drag.canvasHeight) * 100;
     const nextRatio = Math.max(20, Math.min(80, Math.round(drag.startRatio + deltaYPct)));
-    if (nextRatio !== (frame.splitRatio ?? 50)) {
-      onUpdateFrame({
-        ...frame,
+    const curFr = latestFrameRef.current;
+    if (nextRatio !== (curFr.splitRatio ?? 50)) {
+      liveFrame({
+        ...curFr,
         splitRatio: nextRatio,
       });
     }
@@ -767,6 +883,7 @@ export function CanvasViewport({
   const finishSplitDividerDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = splitDividerDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    commitFrame(latestFrameRef.current, 'Resize Split Ratio');
     splitDividerDragRef.current = null;
     setIsSplitDividerDragging(false);
   };
@@ -875,14 +992,13 @@ export function CanvasViewport({
       frameBorderRadius: 0,
     };
 
+    const curFr = latestFrameRef.current;
     if (drag.divider === 'top') {
-      // Tarik ke atas (-) = Header naik (headerPosY mengecil)
-      // Tarik ke bawah (+) = Header turun (headerPosY membesar)
       const deltaYPct = (deltaY / drag.canvasHeight) * 100;
       const nextHdrY = Math.max(0, Math.min(35, Math.round(drag.startHeaderPosY + deltaYPct)));
       if (nextHdrY !== (sp.headerPosY ?? 6)) {
-        onUpdateFrame({
-          ...frame,
+        liveFrame({
+          ...curFr,
           socialProfile: {
             ...sp,
             headerPosY: nextHdrY,
@@ -890,13 +1006,11 @@ export function CanvasViewport({
         });
       }
     } else if (drag.divider === 'bottom') {
-      // Tarik ke atas (-) = Footer naik (footerPosY mengecil)
-      // Tarik ke bawah (+) = Footer turun (footerPosY membesar)
       const deltaYPct = (deltaY / drag.canvasHeight) * 100;
       const nextFtrY = Math.max(65, Math.min(96, Math.round(drag.startFooterPosY + deltaYPct)));
       if (nextFtrY !== (sp.footerPosY ?? 91)) {
-        onUpdateFrame({
-          ...frame,
+        liveFrame({
+          ...curFr,
           socialProfile: {
             ...sp,
             footerPosY: nextFtrY,
@@ -904,11 +1018,10 @@ export function CanvasViewport({
         });
       }
     } else if (drag.divider === 'left') {
-      // Tarik garis kiri: geser ke kanan (+) = padding bertambah (frame menyempit), geser ke kiri (-) = melebar
       const nextPad = Math.max(0, Math.min(48, Math.round(drag.startPadding + deltaX)));
       if (nextPad !== (sp.framePadding ?? 0)) {
-        onUpdateFrame({
-          ...frame,
+        liveFrame({
+          ...curFr,
           socialProfile: {
             ...sp,
             framePadding: nextPad,
@@ -916,11 +1029,10 @@ export function CanvasViewport({
         });
       }
     } else if (drag.divider === 'right') {
-      // Tarik garis kanan: geser ke kiri (-) = padding bertambah (frame menyempit), geser ke kanan (+) = melebar
       const nextPad = Math.max(0, Math.min(48, Math.round(drag.startPadding - deltaX)));
       if (nextPad !== (sp.framePadding ?? 0)) {
-        onUpdateFrame({
-          ...frame,
+        liveFrame({
+          ...curFr,
           socialProfile: {
             ...sp,
             framePadding: nextPad,
@@ -933,72 +1045,85 @@ export function CanvasViewport({
   const finishSocialDividerDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = socialDividerDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    commitFrame(latestFrameRef.current, 'Adjust Social Frame');
     socialDividerDragRef.current = null;
     setIsSocialDividerDragging(false);
   };
 
-  // Touchpad Pinch-to-zoom & Mouse Wheel Zoom (Pinch mousepad laptop untuk zoom)
+  // Touchpad Pinch-to-zoom & Mouse Wheel Zoom (mendukung semua mode termasuk crop + debounce 1 Undo step!)
   useEffect(() => {
     const canvasEl = canvasRef.current;
     if (!canvasEl) return;
 
-    const handleWheel = (e: WheelEvent) => {
-      // Aktif pada mode fit_blur, fit, social, dan split (zoom dengan cursor scroll / pinch touchpad)
-      if (frame.mode !== 'fit_blur' && frame.mode !== 'fit' && frame.mode !== 'social' && frame.mode !== 'split') return;
+    const scheduleWheelCommit = () => {
+      if (wheelCommitTimerRef.current) clearTimeout(wheelCommitTimerRef.current);
+      wheelCommitTimerRef.current = setTimeout(() => {
+        commitFrame(latestFrameRef.current, 'Wheel Zoom Video');
+      }, 280);
+    };
 
+    const handleWheel = (e: WheelEvent) => {
       // Cegah default zoom halaman browser
       e.preventDefault();
 
       let zoomDelta = 0;
       if (e.ctrlKey) {
-        // Trackpad pinch gesture (dua jari mencubit / melebarkan di mousepad)
         zoomDelta = -e.deltaY * 0.008;
       } else {
-        // Wheel mouse biasa atau scroll 2 jari
         zoomDelta = -Math.sign(e.deltaY) * 0.04;
       }
 
-      if (frame.mode === 'split') {
+      const curFr = latestFrameRef.current;
+      if (curFr.mode === 'split') {
         const bounds = canvasEl.getBoundingClientRect();
-        const splitRatio = (frame.splitRatio ?? 50) / 100;
+        const splitRatio = (curFr.splitRatio ?? 50) / 100;
         const dividerY = bounds.top + bounds.height * splitRatio;
         const isTop = e.clientY < dividerY;
 
         if (isTop) {
-          const currentZoom = frame.splitTopZoom ?? frame.zoom ?? 1.0;
+          const currentZoom = curFr.splitTopZoom ?? curFr.zoom ?? 1.0;
           const nextZoom = Math.min(3.0, Math.max(0.4, currentZoom + zoomDelta));
           const rounded = Math.round(nextZoom * 100) / 100;
           if (Math.abs(rounded - currentZoom) >= 0.01) {
-            onUpdateFrame({ ...frame, splitTopZoom: rounded });
+            const next = { ...curFr, splitTopZoom: rounded };
+            latestFrameRef.current = next;
+            liveFrame(next);
+            scheduleWheelCommit();
           }
         } else {
-          const currentZoom = frame.splitBottomZoom ?? frame.zoom ?? 1.0;
+          const currentZoom = curFr.splitBottomZoom ?? curFr.zoom ?? 1.0;
           const nextZoom = Math.min(3.0, Math.max(0.4, currentZoom + zoomDelta));
           const rounded = Math.round(nextZoom * 100) / 100;
           if (Math.abs(rounded - currentZoom) >= 0.01) {
-            onUpdateFrame({ ...frame, splitBottomZoom: rounded });
+            const next = { ...curFr, splitBottomZoom: rounded };
+            latestFrameRef.current = next;
+            liveFrame(next);
+            scheduleWheelCommit();
           }
         }
         return;
       }
 
-      const currentZoom = frame.zoom ?? 1.0;
-      const nextZoom = Math.min(2.5, Math.max(0.4, currentZoom + zoomDelta));
+      const minZoom = curFr.mode === 'crop' ? 1.0 : 0.4;
+      const maxZoom = curFr.mode === 'crop' ? 3.0 : 2.5;
+      const currentZoom = curFr.zoom ?? 1.0;
+      const nextZoom = Math.min(maxZoom, Math.max(minZoom, currentZoom + zoomDelta));
       const rounded = Math.round(nextZoom * 100) / 100;
 
       if (Math.abs(rounded - currentZoom) >= 0.01) {
-        onUpdateFrame({
-          ...frame,
-          zoom: rounded,
-        });
+        const next = { ...curFr, zoom: rounded };
+        latestFrameRef.current = next;
+        liveFrame(next);
+        scheduleWheelCommit();
       }
     };
 
     canvasEl.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
       canvasEl.removeEventListener('wheel', handleWheel);
+      if (wheelCommitTimerRef.current) clearTimeout(wheelCommitTimerRef.current);
     };
-  }, [frame, onUpdateFrame]);
+  }, [liveFrame, commitFrame]);
 
   // Dynamic Real-Time Active Tracking Offset X (Active Speaker & Smooth Follow)
   const activeTracking = useMemo(() => {
@@ -1144,7 +1269,34 @@ export function CanvasViewport({
     return groups.find((g) => realTime >= g.start && realTime <= g.end) || null;
   }, [groups, realTime]);
 
-  // OpenCut In-Place Caption Editing Logic
+  const startOverlayInPlaceEdit = (target: 'hookTitle' | 'watermark') => {
+    if (target === 'hookTitle' && frame.hookTitle) {
+      setOverlayEditText(frame.hookTitle.text || '');
+      setEditingOverlay('hookTitle');
+    } else if (target === 'watermark' && frame.watermark) {
+      setOverlayEditText(frame.watermark.text || '');
+      setEditingOverlay('watermark');
+    }
+  };
+
+  const commitOverlayInPlaceEdit = () => {
+    if (!editingOverlay) return;
+    const target = editingOverlay;
+    setEditingOverlay(null);
+    const trimmed = overlayEditText.trim();
+    if (!trimmed) return;
+    if (target === 'hookTitle' && frame.hookTitle && trimmed !== frame.hookTitle.text) {
+      onUpdateFrame({
+        ...frame,
+        hookTitle: { ...frame.hookTitle, text: trimmed },
+      });
+    } else if (target === 'watermark' && frame.watermark && trimmed !== frame.watermark.text) {
+      onUpdateFrame({
+        ...frame,
+        watermark: { ...frame.watermark, text: trimmed },
+      });
+    }
+  };
   const handleCaptionDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -1160,33 +1312,47 @@ export function CanvasViewport({
     const trimmed = inPlaceEditText.trim();
     if (!trimmed || !activeGroup) return;
 
-    // Temukan segmen transkrip asal yang mencakup kelompok kata ini
-    const groupStart = activeGroup.start;
-    const groupEnd = activeGroup.end;
-    const segIdx = captionSegments.findIndex(
-      (s) => s.start <= groupEnd + 0.15 && s.end >= groupStart - 0.15
-    );
+    // Cari segmen asal tepat berdasarkan segmentId agar kata lain dalam segmen TIDAK terhapus!
+    const segIdx = captionSegments.findIndex((s) => s.id === activeGroup.segmentId);
+    if (segIdx === -1) return;
 
-    if (segIdx !== -1) {
-      const seg = captionSegments[segIdx];
-      const toks = trimmed.split(/\s+/).filter(Boolean);
-      const dur = Math.max(0.1, seg.end - seg.start);
-      const step = dur / toks.length;
-      const newWords = toks.map((w, idx) => ({
-        w,
-        s: seg.start + idx * step,
-        e: seg.start + (idx + 1) * step,
-        hl: false,
-      }));
+    const seg = captionSegments[segIdx];
+    const existingWords = seg.words && seg.words.length > 0
+      ? [...seg.words]
+      : (seg.text || '').split(/\s+/).filter(Boolean).map((w, idx, arr) => {
+          const d = Math.max(0.1, seg.end - seg.start);
+          const step = d / Math.max(1, arr.length);
+          return { w, s: seg.start + idx * step, e: seg.start + (idx + 1) * step, hl: false };
+        });
 
-      const nextSegments = [...captionSegments];
-      nextSegments[segIdx] = {
-        ...seg,
-        text: trimmed,
-        words: newWords,
-      };
-      onUpdateSegments?.(nextSegments);
-    }
+    const wStartIdx = Math.max(0, Math.min(existingWords.length, activeGroup.wordStartIdx ?? 0));
+    const wEndIdx = Math.max(wStartIdx, Math.min(existingWords.length, activeGroup.wordEndIdx ?? existingWords.length));
+
+    const sliceStart = existingWords[wStartIdx]?.s ?? activeGroup.start;
+    const sliceEnd = existingWords[Math.max(wStartIdx, wEndIdx - 1)]?.e ?? activeGroup.lastEnd;
+    const sliceDur = Math.max(0.1, sliceEnd - sliceStart);
+    const toks = trimmed.split(/\s+/).filter(Boolean);
+    const step = sliceDur / Math.max(1, toks.length);
+    const replacementWords = toks.map((w, idx) => ({
+      w,
+      s: sliceStart + idx * step,
+      e: sliceStart + (idx + 1) * step,
+      hl: existingWords[wStartIdx + idx]?.hl ?? false,
+    }));
+
+    const mergedWords = [
+      ...existingWords.slice(0, wStartIdx),
+      ...replacementWords,
+      ...existingWords.slice(wEndIdx),
+    ];
+
+    const nextSegments = [...captionSegments];
+    nextSegments[segIdx] = {
+      ...seg,
+      text: mergedWords.map((w) => w.w).join(' '),
+      words: mergedWords,
+    };
+    onUpdateSegments?.(nextSegments);
   };
 
   // Sync volume & mute audio ke video element
@@ -1197,23 +1363,30 @@ export function CanvasViewport({
     }
   }, [audio, videoRef]);
 
-  // Sync playback speed (OpenCut Retime) ke elemen video
+  // Sync playback speed (OpenCut Retime) ke semua elemen video
   useEffect(() => {
     const sp = frame.speed || 1.0;
     if (videoRef.current) videoRef.current.playbackRate = sp;
     if (bgVideoRef.current) bgVideoRef.current.playbackRate = sp;
     if (splitBottomVideoRef.current) splitBottomVideoRef.current.playbackRate = sp;
+    if (splitTopBgVideoRef.current) splitTopBgVideoRef.current.playbackRate = sp;
+    if (splitBotBgVideoRef.current) splitBotBgVideoRef.current.playbackRate = sp;
+    if (socialBgVideoRef.current) socialBgVideoRef.current.playbackRate = sp;
   }, [frame.speed, videoRef]);
 
-  // Toggle fullscreen
-  const toggleFullscreen = () => {
+  // Toggle fullscreen (terdaftar agar shortcut keyboard 'F' juga bekerja!)
+  const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
     } else {
       document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    onRegisterFullscreenToggle?.(toggleFullscreen);
+  }, [onRegisterFullscreenToggle, toggleFullscreen]);
 
   // Ambil URL file video preview dari storage
   const videoSrc = useMemo(() => {
@@ -1320,16 +1493,16 @@ export function CanvasViewport({
         </div>
 
         <div className="video-player-actions flex items-center gap-2">
-          {/* Direct Download HD Button */}
-          {videoSrc && (
+          {/* Direct Download Exported MP4 Button (Hanya tampil jika klip SUDAH pernah diekspor dengan editan) */}
+          {clip?.export_path && (
             <a
-              href={videoSrc}
-              download={`${clip?.title || 'clip'}_HD_1080p.mp4`}
+              href={`/api/files/${clip.export_path}`}
+              download={`${clip?.title || 'clip'}_export.mp4`}
               className="h-7 px-2.5 rounded-md bg-secondary/15 hover:bg-secondary/25 text-secondary text-xs font-semibold flex items-center gap-1.5 transition-colors border border-secondary/30 shadow-sm"
-              title="Download video preview klip ini langsung dalam Full HD (1080p MP4)"
+              title="Download hasil ekspor final MP4 terakhir klip ini"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Download HD</span>
+              <span>Unduh Hasil</span>
             </a>
           )}
 
@@ -1373,8 +1546,14 @@ export function CanvasViewport({
         <div
           ref={canvasRef}
           onClick={(event) => {
-            if (!(event.target as HTMLElement).closest('[data-caption-overlay]')) {
-              setCaptionSelected(false);
+            const targetEl = event.target as HTMLElement;
+            setContextMenu(null);
+            if (
+              !targetEl.closest('[data-caption-overlay]') &&
+              !targetEl.closest('[data-headline-overlay]') &&
+              !targetEl.closest('[data-watermark-overlay]')
+            ) {
+              onSelectElement?.(null);
             }
           }}
           style={{
@@ -1402,6 +1581,7 @@ export function CanvasViewport({
                   {/* Blurred background video for when zoom < 1.55 (Fit Mode Utuh) */}
                   <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none select-none opacity-40">
                     <video
+                      ref={splitTopBgVideoRef}
                       src={videoSrc}
                       className="w-full h-full object-cover scale-125 filter blur-xl brightness-50"
                       muted
@@ -1544,6 +1724,7 @@ export function CanvasViewport({
                   {/* Blurred background video for when zoom < 1.55 (Fit Mode Utuh) */}
                   <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none select-none opacity-40">
                     <video
+                      ref={splitBotBgVideoRef}
                       src={videoSrc}
                       className="w-full h-full object-cover scale-125 filter blur-xl brightness-50"
                       muted
@@ -1857,6 +2038,7 @@ export function CanvasViewport({
                         {/* Blurred background video duplicate for when zoom < 1.35 (Fit Mode Utuh ala Podcast) */}
                         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none select-none opacity-40">
                           <video
+                            ref={socialBgVideoRef}
                             src={videoSrc}
                             className="w-full h-full object-cover scale-125 filter blur-xl brightness-50"
                             muted
@@ -2282,7 +2464,18 @@ export function CanvasViewport({
             </div>
           )}
 
-          {/* Dynamic Snap Guides Overlay (OpenCut Magnetic Snapping) */}
+          {/* Dynamic Snap Guides Overlay (OpenCut Magnetic Crosshair X + Y) */}
+          {activeSnapGuides?.x && (
+            <div
+              className="absolute top-0 bottom-0 z-25 pointer-events-none flex items-center justify-center transition-all duration-75"
+              style={{ left: `${activeSnapGuides.x.position}%` }}
+            >
+              <div className="h-full w-px bg-primary shadow-[0_0_8px_rgba(76,215,246,0.9)]" />
+              <span className="absolute top-2 bg-primary text-on-primary text-[9px] font-bold px-2 py-0.5 rounded-full shadow-lg font-mono whitespace-nowrap">
+                {activeSnapGuides.x.label}
+              </span>
+            </div>
+          )}
           {activeSnapGuides?.y && (
             <div
               className="absolute left-0 right-0 z-25 pointer-events-none flex items-center justify-center transition-all duration-75"
@@ -2298,10 +2491,12 @@ export function CanvasViewport({
           {/* Dynamic Real-time CSS Caption Overlay */}
           {activeGroup && style.enabled !== false && (
             <div
-              className="absolute left-0 right-0 z-30 px-[3%] flex items-center justify-center pointer-events-none"
+              className="absolute z-30 flex items-center justify-center pointer-events-none"
               style={{
+                left: `${style.positionX ?? 50}%`,
                 top: `${style.positionY ?? 72}%`,
-                transform: `translateY(-50%) rotate(${style.rotation || 0}deg)`,
+                width: '94%',
+                transform: `translate(-50%, -50%) rotate(${style.rotation || 0}deg)`,
                 transformOrigin: 'center center',
               }}
             >
@@ -2313,13 +2508,36 @@ export function CanvasViewport({
                 onPointerCancel={!isEditingInPlace ? finishCaptionDrag : undefined}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setCaptionSelected(true);
+                  setContextMenu(null);
+                  onSelectElement?.({ type: 'caption', segmentId: activeGroup.segmentId });
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelectElement?.({ type: 'caption', segmentId: activeGroup.segmentId });
+                  const rect = canvasRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setContextMenu({
+                      x: Math.min(rect.width - 175, Math.max(8, e.clientX - rect.left)),
+                      y: Math.min(rect.height - 150, Math.max(8, e.clientY - rect.top)),
+                      target: 'caption',
+                    });
+                  }
                 }}
                 onDoubleClick={handleCaptionDoubleClick}
                 onKeyDown={(event) => {
+                  if (isEditingInPlace) return;
                   if (event.key === 'Escape') {
-                    setCaptionSelected(false);
+                    onSelectElement?.(null);
                     setIsEditingInPlace(false);
+                  } else if (event.key === 'Delete' || event.key === 'Backspace') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (activeGroup.segmentId && onDeleteCaptionSegment) {
+                      onDeleteCaptionSegment(activeGroup.segmentId);
+                    } else {
+                      onDeleteSelectedElement?.();
+                    }
                   }
                 }}
                 role="group"
@@ -2518,9 +2736,45 @@ export function CanvasViewport({
                       </div>
                     ) : null}
 
-                    {/* Quick Double Click Edit Hint */}
-                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/75 backdrop-blur-sm text-[9px] text-on-surface-variant px-1.5 py-0.5 rounded shadow pointer-events-none border border-outline-variant/20">
-                      Double-click untuk edit teks
+                    {/* Quick Floating Action Bar (Edit + Center + Delete ala OpenCut) */}
+                    <div
+                      data-element-action
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/90 backdrop-blur-md px-1.5 py-0.5 rounded-full border border-primary/40 shadow-xl z-50 whitespace-nowrap"
+                    >
+                      <button
+                        type="button"
+                        onClick={handleCaptionDoubleClick}
+                        className="px-1.5 py-0.5 rounded-full text-[9px] font-semibold text-white hover:bg-white/15 flex items-center gap-1 cursor-pointer"
+                        title="Edit teks baris ini (Double-click)"
+                      >
+                        <Pencil className="w-2.5 h-2.5 text-primary" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateStyle({ ...style, positionX: 50, rotation: 0 })}
+                        className="p-1 rounded-full text-neutral-300 hover:text-white hover:bg-white/15 cursor-pointer"
+                        title="Tengahkan & reset rotasi"
+                      >
+                        <AlignCenter className="w-2.5 h-2.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeGroup?.segmentId && onDeleteCaptionSegment) {
+                            onDeleteCaptionSegment(activeGroup.segmentId);
+                          } else {
+                            onDeleteSelectedElement?.();
+                          }
+                        }}
+                        className="px-1.5 py-0.5 rounded-full text-[9px] font-bold text-rose-300 hover:bg-rose-500/30 hover:text-white flex items-center gap-1 cursor-pointer"
+                        title="Hapus baris subtitel ini (Delete / Backspace)"
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                        <span>Hapus</span>
+                      </button>
                     </div>
                   </>
                 )}
@@ -2528,9 +2782,13 @@ export function CanvasViewport({
             </div>
           )}
 
-          {/* Teks Tambahan / Add Text Overlay (Bebas Dipindah ke Mana Saja) */}
+          {/* Teks Tambahan / Add Text Overlay (Bebas Dipindah, Dipilih, & Dihapus via Delete) */}
           {frame.hookTitle?.enabled && frame.hookTitle.text?.trim() && (() => {
             const ht = frame.hookTitle;
+            const htStart = ht.startSec ?? 0;
+            const htEnd = ht.endSec ?? clipDuration;
+            const isHtVisibleAtTime = relativeTime >= htStart - 0.05 && relativeTime <= htEnd + 0.05;
+            if (!isHtVisibleAtTime && !headlineSelected) return null;
             const preset = ht.stylePreset || 'pill';
 
             // Skalabilitas ukuran font ala OpenCut (relatif terhadap canvas height):
@@ -2684,42 +2942,143 @@ export function CanvasViewport({
             return (
               <div
                 data-headline-overlay
-                onPointerDown={beginHeadlineDrag}
-                onPointerMove={updateHeadlineDrag}
-                onPointerUp={finishHeadlineDrag}
-                onPointerCancel={finishHeadlineDrag}
-                className={`absolute z-32 select-none touch-none cursor-grab active:cursor-grabbing transition-shadow duration-75 flex items-center justify-center group/ht ${
-                  isHeadlineDragging
-                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-black scale-[1.02] z-40'
-                    : 'hover:ring-1 hover:ring-primary/60'
-                }`}
+                tabIndex={0}
+                onPointerDown={editingOverlay !== 'hookTitle' ? beginHeadlineDrag : undefined}
+                onPointerMove={editingOverlay !== 'hookTitle' ? updateHeadlineDrag : undefined}
+                onPointerUp={editingOverlay !== 'hookTitle' ? finishHeadlineDrag : undefined}
+                onPointerCancel={editingOverlay !== 'hookTitle' ? finishHeadlineDrag : undefined}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setContextMenu(null);
+                  onSelectElement?.({ type: 'hookTitle' });
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  startOverlayInPlaceEdit('hookTitle');
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelectElement?.({ type: 'hookTitle' });
+                  const rect = canvasRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setContextMenu({
+                      x: Math.min(rect.width - 175, Math.max(8, e.clientX - rect.left)),
+                      y: Math.min(rect.height - 150, Math.max(8, e.clientY - rect.top)),
+                      target: 'hookTitle',
+                    });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (editingOverlay === 'hookTitle') return;
+                  if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDeleteHookTitle?.();
+                  } else if (e.key === 'Escape') {
+                    onSelectElement?.(null);
+                  }
+                }}
+                className={`absolute z-32 select-none touch-none cursor-grab active:cursor-grabbing transition-shadow duration-75 flex items-center justify-center group/ht outline-none ${
+                  isHeadlineDragging || headlineSelected
+                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-black/70 rounded z-40'
+                    : 'hover:ring-1 hover:ring-primary/60 rounded'
+                } ${!isHtVisibleAtTime ? 'opacity-45' : ''}`}
                 style={{
                   left: `${ht.positionX ?? 50}%`,
                   top: `${ht.positionY ?? 6}%`,
                   transform: 'translateX(-50%)',
                   maxWidth: '92%',
                 }}
-                title="Klik dan seret (drag) langsung teks di kanvas untuk memindahkannya ke mana saja"
+                title="Klik untuk pilih • Double-click untuk edit teks • Delete untuk hapus"
               >
-                <div
-                  className="text-center flex items-center justify-center transition-all duration-150 leading-tight"
-                  style={innerStyle}
-                >
-                  {displayText}
-                </div>
+                {editingOverlay === 'hookTitle' ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={overlayEditText}
+                    onChange={(e) => setOverlayEditText(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commitOverlayInPlaceEdit();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setEditingOverlay(null);
+                      }
+                    }}
+                    onBlur={commitOverlayInPlaceEdit}
+                    className="bg-black/95 text-white text-center font-bold px-3 py-1 rounded border-2 border-primary outline-none shadow-2xl min-w-[180px]"
+                    style={{ fontSize: `${Math.max(12, calcFontSize)}px`, fontFamily }}
+                  />
+                ) : (
+                  <div
+                    className="text-center flex items-center justify-center transition-all duration-150 leading-tight"
+                    style={innerStyle}
+                  >
+                    {displayText}
+                  </div>
+                )}
+
+                {/* Floating Action Bar saat Hook Title terpilih */}
+                {headlineSelected && !isHeadlineDragging && editingOverlay !== 'hookTitle' && (
+                  <div
+                    data-element-action
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/90 backdrop-blur-md px-1.5 py-0.5 rounded-full border border-primary/40 shadow-xl z-50 whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => startOverlayInPlaceEdit('hookTitle')}
+                      className="px-1.5 py-0.5 rounded-full text-[9px] font-semibold text-white hover:bg-white/15 flex items-center gap-1 cursor-pointer"
+                      title="Edit teks langsung (Double-click)"
+                    >
+                      <Pencil className="w-2.5 h-2.5 text-primary" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateFrame({
+                          ...frame,
+                          hookTitle: { ...ht, positionX: 50 },
+                        })
+                      }
+                      className="p-1 rounded-full text-neutral-300 hover:text-white hover:bg-white/15 cursor-pointer"
+                      title="Tengahkan horizontal (X = 50%)"
+                    >
+                      <AlignCenter className="w-2.5 h-2.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteHookTitle?.()}
+                      className="px-1.5 py-0.5 rounded-full text-[9px] font-bold text-rose-300 hover:bg-rose-500/30 hover:text-white flex items-center gap-1 cursor-pointer"
+                      title="Hapus Teks Tambahan (Delete / Backspace)"
+                    >
+                      <Trash2 className="w-2.5 h-2.5" />
+                      <span>Hapus</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Indicator koordinat saat di-drag atau di-hover */}
-                <div
-                  className={`absolute -bottom-5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-black/85 backdrop-blur-sm border border-primary/30 text-[9px] text-primary font-mono whitespace-nowrap pointer-events-none transition-opacity duration-150 ${
-                    isHeadlineDragging ? 'opacity-100' : 'opacity-0 group-hover/ht:opacity-100'
-                  }`}
-                >
-                  Y: {ht.positionY ?? 6}% {ht.positionX !== undefined && ht.positionX !== 50 ? `| X: ${ht.positionX}%` : ''}
-                </div>
+                {!headlineSelected && (
+                  <div
+                    className={`absolute -bottom-5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-black/85 backdrop-blur-sm border border-primary/30 text-[9px] text-primary font-mono whitespace-nowrap pointer-events-none transition-opacity duration-150 ${
+                      isHeadlineDragging ? 'opacity-100' : 'opacity-0 group-hover/ht:opacity-100'
+                    }`}
+                  >
+                    Y: {ht.positionY ?? 6}% {ht.positionX !== undefined && ht.positionX !== 50 ? `| X: ${ht.positionX}%` : ''}
+                  </div>
+                )}
               </div>
             );
           })()}
 
-          {/* Dynamic Retention Progress Bar */}
+          {/* Dynamic Retention Progress Bar (Sinkron 100% dengan Trim Klip) */}
           {frame.progressBar?.enabled && (
             <div
               className={`absolute left-0 right-0 z-35 pointer-events-none ${
@@ -2733,7 +3092,7 @@ export function CanvasViewport({
               <div
                 className="h-full transition-all duration-75 ease-linear"
                 style={{
-                  width: `${Math.min(100, Math.max(0, (currentTime / (duration || 1)) * 100))}%`,
+                  width: `${Math.min(100, Math.max(0, (relativeTime / clipDuration) * 100))}%`,
                   backgroundColor: frame.progressBar.color || '#38BDF8',
                   boxShadow: `0 0 10px ${frame.progressBar.color || '#38BDF8'}`,
                 }}
@@ -2741,69 +3100,262 @@ export function CanvasViewport({
             </div>
           )}
 
-          {/* Creator Watermark / Handle Branding (Interactive Draggable Badge) */}
-          {frame.watermark?.enabled && frame.watermark.text?.trim() && (
+          {/* Creator Watermark / Handle Branding (Interactive Selectable & Deletable Badge) */}
+          {frame.watermark?.enabled && frame.watermark.text?.trim() && (() => {
+            const wm = frame.watermark;
+            const wmStart = wm.startSec ?? 0;
+            const wmEnd = wm.endSec ?? clipDuration;
+            const isWmVisibleAtTime = relativeTime >= wmStart - 0.05 && relativeTime <= wmEnd + 0.05;
+            if (!isWmVisibleAtTime && !watermarkSelected) return null;
+            return (
             <div
               data-watermark-overlay
-              onPointerDown={beginWatermarkDrag}
-              onPointerMove={updateWatermarkDrag}
-              onPointerUp={finishWatermarkDrag}
-              onPointerCancel={finishWatermarkDrag}
-              className={`absolute z-32 select-none touch-none cursor-move transition-transform duration-100 group/wm ${
-                isWatermarkDragging ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-black scale-105 z-40' : 'hover:ring-1 hover:ring-emerald-400/70'
-              }`}
-              style={{
-                left: `${frame.watermark.positionX ?? (frame.watermark.position === 'top-left' || frame.watermark.position === 'bottom-left' ? 12 : 88)}%`,
-                top: `${frame.watermark.positionY ?? (frame.watermark.position === 'top-left' || frame.watermark.position === 'top-right' ? 5 : 92)}%`,
-                transform: 'translate(-50%, -50%)',
-                opacity: frame.watermark.opacity ?? 0.85,
+              tabIndex={0}
+              onPointerDown={editingOverlay !== 'watermark' ? beginWatermarkDrag : undefined}
+              onPointerMove={editingOverlay !== 'watermark' ? updateWatermarkDrag : undefined}
+              onPointerUp={editingOverlay !== 'watermark' ? finishWatermarkDrag : undefined}
+              onPointerCancel={editingOverlay !== 'watermark' ? finishWatermarkDrag : undefined}
+              onClick={(e) => {
+                e.stopPropagation();
+                setContextMenu(null);
+                onSelectElement?.({ type: 'watermark' });
               }}
-              title="Klik dan seret (drag) untuk memindahkan posisi watermark"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                startOverlayInPlaceEdit('watermark');
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelectElement?.({ type: 'watermark' });
+                const rect = canvasRef.current?.getBoundingClientRect();
+                if (rect) {
+                  setContextMenu({
+                    x: Math.min(rect.width - 175, Math.max(8, e.clientX - rect.left)),
+                    y: Math.min(rect.height - 150, Math.max(8, e.clientY - rect.top)),
+                    target: 'watermark',
+                  });
+                }
+              }}
+              onKeyDown={(e) => {
+                if (editingOverlay === 'watermark') return;
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteWatermark?.();
+                } else if (e.key === 'Escape') {
+                  onSelectElement?.(null);
+                }
+              }}
+              className={`absolute z-32 select-none touch-none cursor-move transition-transform duration-100 group/wm outline-none rounded-full ${
+                isWatermarkDragging || watermarkSelected
+                  ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-black/70 z-40'
+                  : 'hover:ring-1 hover:ring-emerald-400/70'
+              } ${!isWmVisibleAtTime ? 'opacity-45' : ''}`}
+              style={{
+                left: `${wm.positionX ?? (wm.position === 'top-left' || wm.position === 'bottom-left' ? 12 : 88)}%`,
+                top: `${wm.positionY ?? (wm.position === 'top-left' || wm.position === 'top-right' ? 5 : 92)}%`,
+                transform: 'translate(-50%, -50%)',
+                opacity: wm.opacity ?? 0.85,
+              }}
+              title="Klik untuk pilih • Double-click untuk edit teks • Delete untuk hapus"
             >
-              <div
-                className={`flex items-center gap-1.5 transition-all shadow-lg ${
-                  frame.watermark.stylePreset === 'minimal'
-                    ? 'bg-transparent px-1 py-0.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]'
-                    : frame.watermark.stylePreset === 'glow'
-                    ? 'bg-black/50 backdrop-blur-md border border-primary/60 shadow-[0_0_12px_rgba(56,189,248,0.4)] rounded-full px-3 py-1'
-                    : frame.watermark.stylePreset === 'marker'
-                    ? 'bg-amber-400 !text-slate-950 font-black rounded-md px-2.5 py-0.5 shadow-md'
-                    : frame.watermark.stylePreset === 'outline'
-                    ? 'bg-black/30 backdrop-blur-sm border-2 border-white/80 rounded-lg px-2.5 py-1'
-                    : frame.watermark.stylePreset === 'glass'
-                    ? 'bg-white/15 backdrop-blur-lg border border-white/30 rounded-full px-3 py-1 shadow-xl'
-                    : 'bg-black/60 backdrop-blur-md border border-white/20 rounded-full px-3 py-1 shadow-md'
-                }`}
-                style={{
-                  fontFamily: frame.watermark.fontFamily || 'Inter',
-                  fontSize: `${Math.max(10, (frame.watermark.fontSize || 13) * ((canvasSize.height || 640) / 1080 * 1.5))}px`,
-                  color: frame.watermark.stylePreset === 'marker' ? '#0F172A' : (frame.watermark.textColor || '#FFFFFF'),
-                  textTransform: frame.watermark.uppercase ? 'uppercase' : 'none',
-                }}
-              >
-                {/* Prefix Icon */}
-                {frame.watermark.prefixIcon === 'verified' ? (
-                  <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-sky-500 text-white text-[9px] font-bold">✓</span>
-                ) : frame.watermark.prefixIcon === 'sparkle' ? (
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                ) : frame.watermark.prefixIcon === 'video' ? (
-                  <Film className="w-3.5 h-3.5 text-primary" />
-                ) : frame.watermark.prefixIcon === 'none' ? null : (
-                  <span className="opacity-75 font-mono text-[11px]">@</span>
-                )}
-                <span className="font-semibold tracking-wide whitespace-nowrap">
-                  {frame.watermark.prefixIcon === 'at' && frame.watermark.text.startsWith('@')
-                    ? frame.watermark.text.substring(1)
-                    : frame.watermark.text}
-                </span>
-              </div>
+              {editingOverlay === 'watermark' ? (
+                <input
+                  autoFocus
+                  type="text"
+                  value={overlayEditText}
+                  onChange={(e) => setOverlayEditText(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitOverlayInPlaceEdit();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingOverlay(null);
+                    }
+                  }}
+                  onBlur={commitOverlayInPlaceEdit}
+                  className="bg-black/95 text-white text-center text-xs font-semibold px-2.5 py-1 rounded-full border-2 border-emerald-400 outline-none shadow-2xl min-w-[140px]"
+                />
+              ) : (
+                <div
+                  className={`flex items-center gap-1.5 transition-all shadow-lg ${
+                    wm.stylePreset === 'minimal'
+                      ? 'bg-transparent px-1 py-0.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]'
+                      : wm.stylePreset === 'glow'
+                      ? 'bg-black/50 backdrop-blur-md border border-primary/60 shadow-[0_0_12px_rgba(56,189,248,0.4)] rounded-full px-3 py-1'
+                      : wm.stylePreset === 'marker'
+                      ? 'bg-amber-400 !text-slate-950 font-black rounded-md px-2.5 py-0.5 shadow-md'
+                      : wm.stylePreset === 'outline'
+                      ? 'bg-black/30 backdrop-blur-sm border-2 border-white/80 rounded-lg px-2.5 py-1'
+                      : wm.stylePreset === 'glass'
+                      ? 'bg-white/15 backdrop-blur-lg border border-white/30 rounded-full px-3 py-1 shadow-xl'
+                      : 'bg-black/60 backdrop-blur-md border border-white/20 rounded-full px-3 py-1 shadow-md'
+                  }`}
+                  style={{
+                    fontFamily: wm.fontFamily || 'Inter',
+                    fontSize: `${Math.max(10, (wm.fontSize || 13) * ((canvasSize.height || 640) / 1080 * 1.5))}px`,
+                    color: wm.stylePreset === 'marker' ? '#0F172A' : (wm.textColor || '#FFFFFF'),
+                    textTransform: wm.uppercase ? 'uppercase' : 'none',
+                  }}
+                >
+                  {/* Prefix Icon */}
+                  {wm.prefixIcon === 'verified' ? (
+                    <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-sky-500 text-white text-[9px] font-bold">✓</span>
+                  ) : wm.prefixIcon === 'sparkle' ? (
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  ) : wm.prefixIcon === 'video' ? (
+                    <Film className="w-3.5 h-3.5 text-primary" />
+                  ) : wm.prefixIcon === 'none' ? null : (
+                    <span className="opacity-75 font-mono text-[11px]">@</span>
+                  )}
+                  <span className="font-semibold tracking-wide whitespace-nowrap">
+                    {wm.prefixIcon === 'at' && wm.text.startsWith('@')
+                      ? wm.text.substring(1)
+                      : wm.text}
+                  </span>
+                </div>
+              )}
+
+              {/* Floating Delete Bar saat Watermark terpilih */}
+              {watermarkSelected && !isWatermarkDragging && editingOverlay !== 'watermark' && (
+                <div
+                  data-element-action
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/90 backdrop-blur-md px-1.5 py-0.5 rounded-full border border-emerald-400/50 shadow-xl z-50 whitespace-nowrap"
+                >
+                  <button
+                    type="button"
+                    onClick={() => startOverlayInPlaceEdit('watermark')}
+                    className="px-1.5 py-0.5 rounded-full text-[9px] font-semibold text-white hover:bg-white/15 flex items-center gap-1 cursor-pointer"
+                    title="Edit teks watermark langsung (Double-click)"
+                  >
+                    <Pencil className="w-2.5 h-2.5 text-emerald-400" />
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateFrame({
+                        ...frame,
+                        watermark: { ...wm, position: 'custom', positionX: 50 },
+                      })
+                    }
+                    className="p-1 rounded-full text-neutral-300 hover:text-white hover:bg-white/15 cursor-pointer"
+                    title="Tengahkan horizontal (X = 50%)"
+                  >
+                    <AlignCenter className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteWatermark?.()}
+                    className="px-1.5 py-0.5 rounded-full text-[9px] font-bold text-rose-300 hover:bg-rose-500/30 hover:text-white flex items-center gap-1 cursor-pointer"
+                    title="Hapus Watermark (Delete / Backspace)"
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                    <span>Hapus</span>
+                  </button>
+                </div>
+              )}
 
               {/* Real-time Drag Tooltip */}
               {isWatermarkDragging && (
                 <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap bg-emerald-500 text-black font-mono font-bold text-[9px] px-1.5 py-0.5 rounded shadow pointer-events-none">
-                  X: {frame.watermark.positionX ?? 85}% • Y: {frame.watermark.positionY ?? 92}%
+                  X: {wm.positionX ?? 85}% • Y: {wm.positionY ?? 92}%
                 </div>
               )}
+            </div>
+            );
+          })()}
+
+          {/* OpenCut-Style Right-Click Element Context Menu */}
+          {contextMenu && (
+            <div
+              data-element-action
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+              className="absolute z-50 w-44 rounded-lg bg-surface-container-highest/95 backdrop-blur-md border border-outline-variant/40 shadow-2xl py-1 text-xs text-on-surface animate-in fade-in duration-100"
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  const target = contextMenu.target;
+                  setContextMenu(null);
+                  if (target === 'caption') {
+                    handleCaptionDoubleClick(e);
+                  } else {
+                    startOverlayInPlaceEdit(target);
+                  }
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-primary/20 flex items-center gap-2 cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5 text-primary" />
+                <span>Edit Teks Langsung</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (contextMenu.target === 'caption') {
+                    onUpdateStyle({ ...style, positionX: 50 });
+                  } else if (contextMenu.target === 'hookTitle' && frame.hookTitle) {
+                    onUpdateFrame({ ...frame, hookTitle: { ...frame.hookTitle, positionX: 50 } });
+                  } else if (contextMenu.target === 'watermark' && frame.watermark) {
+                    onUpdateFrame({ ...frame, watermark: { ...frame.watermark, position: 'custom', positionX: 50 } });
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-primary/20 flex items-center gap-2 cursor-pointer"
+              >
+                <AlignCenter className="w-3.5 h-3.5 text-outline" />
+                <span>Tengahkan (X = 50%)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (contextMenu.target === 'caption') {
+                    onUpdateStyle({ ...style, positionX: 50, positionY: 72, rotation: 0 });
+                  } else if (contextMenu.target === 'hookTitle' && frame.hookTitle) {
+                    onUpdateFrame({ ...frame, hookTitle: { ...frame.hookTitle, positionX: 50, positionY: 6 } });
+                  } else if (contextMenu.target === 'watermark' && frame.watermark) {
+                    onUpdateFrame({ ...frame, watermark: { ...frame.watermark, position: 'bottom-right', positionX: 85, positionY: 92 } });
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-primary/20 flex items-center gap-2 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-outline" />
+                <span>Reset Posisi</span>
+              </button>
+              <div className="my-1 border-t border-outline-variant/25" />
+              <button
+                type="button"
+                onClick={() => {
+                  if (contextMenu.target === 'caption') {
+                    if (activeGroup?.segmentId && onDeleteCaptionSegment) {
+                      onDeleteCaptionSegment(activeGroup.segmentId);
+                    } else {
+                      onDeleteSelectedElement?.();
+                    }
+                  } else if (contextMenu.target === 'hookTitle') {
+                    onDeleteHookTitle?.();
+                  } else if (contextMenu.target === 'watermark') {
+                    onDeleteWatermark?.();
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left hover:bg-rose-500/20 text-rose-400 font-semibold flex items-center justify-between cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Elemen</span>
+                </span>
+                <kbd className="text-[9px] font-mono opacity-75">Del</kbd>
+              </button>
             </div>
           )}
 
@@ -2831,9 +3383,23 @@ export function CanvasViewport({
         >
           {/* Base Background Track */}
           <div className="w-full h-1.5 group-hover/scrubber:h-2 rounded-full bg-surface-container-highest/80 relative overflow-hidden transition-[height] duration-150">
+            {/* Cut Range Indicators on Mini Scrubber */}
+            {normalizedCuts.map((c, idx) => {
+              const leftPct = Math.max(0, Math.min(100, ((c.start - clipStartSec) / clipDuration) * 100));
+              const widthPct = Math.max(0.5, Math.min(100 - leftPct, ((c.end - c.start) / clipDuration) * 100));
+              return (
+                <div
+                  key={`cut_${idx}`}
+                  style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                  className="absolute top-0 bottom-0 bg-rose-500/55 pointer-events-none z-15"
+                  title={`Bagian dihapus (${(c.end - c.start).toFixed(1)}s)`}
+                />
+              );
+            })}
+
             {/* Subtitle Segment Ticks (Sentence Boundaries) */}
             {captionSegments.map((seg, idx) => {
-              const segStartRel = Math.max(0, seg.start - previewOffset - inPoint);
+              const segStartRel = Math.max(0, seg.start - clipStartSec);
               const tickPct = (segStartRel / clipDuration) * 100;
               if (tickPct <= 0.5 || tickPct >= 99.5) return null;
               return (
@@ -2894,7 +3460,7 @@ export function CanvasViewport({
           <div className="flex items-center gap-1">
             {/* Jump to start */}
             <button
-              onClick={() => onSeek(inPoint)}
+              onClick={() => onSeek(firstActiveInPoint)}
               className="p-1.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
               title="Kembali ke Awal Klip (Home)"
             >

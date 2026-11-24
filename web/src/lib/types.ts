@@ -37,6 +37,21 @@ export interface TranscriptWord {
   end: number;
 }
 
+export interface HeatmapPoint {
+  start_time: number;
+  end_time: number;
+  value: number;
+}
+
+export type PeaksData =
+  | number[]
+  | {
+      peaks: number[];
+      rate?: number;
+      max?: number;
+      duration?: number;
+    };
+
 export interface Transcript {
   id: number;
   project_id: number;
@@ -156,6 +171,8 @@ export interface HookTitleSettings {
   fontFamily?: string; // Jenis font (Inter, Montserrat, dll)
   textCase?: HookTitleTextCase; // Format huruf: 'original' (sesuai ketikan), 'uppercase', 'lowercase', 'titlecase'
   uppercase?: boolean; // Huruf kapital semua (legacy boolean)
+  startSec?: number; // Detik relatif klip mulai tampil (kosong = dari awal klip)
+  endSec?: number;   // Detik relatif klip selesai tampil (kosong = sampai akhir klip)
 }
 
 export interface ProgressBarSettings {
@@ -178,7 +195,21 @@ export interface WatermarkSettings {
   stylePreset?: 'pill' | 'minimal' | 'glow' | 'marker' | 'outline' | 'glass';
   prefixIcon?: 'none' | 'at' | 'verified' | 'sparkle' | 'video';
   uppercase?: boolean;
+  startSec?: number; // Detik relatif klip mulai tampil (kosong = dari awal klip)
+  endSec?: number;   // Detik relatif klip selesai tampil (kosong = sampai akhir klip)
 }
+
+export interface VideoCutRange {
+  start: number; // Detik real video asli yang dibuang
+  end: number;   // Detik real video asli yang dibuang
+}
+
+export type EditorSelection =
+  | { type: 'caption'; segmentId?: string }
+  | { type: 'hookTitle' }
+  | { type: 'watermark' }
+  | { type: 'videoSegment'; start: number; end: number; isCut?: boolean }
+  | null;
 
 export type FilterPreset =
   | 'none'
@@ -294,6 +325,9 @@ export interface FrameSettings {
   progressBar?: ProgressBarSettings;
   watermark?: WatermarkSettings;
   safeZonePreset?: 'none' | 'tiktok' | 'reels' | 'shorts' | 'grid';
+  // Non-destructive V1 Timeline Split & Cut (OpenCut-style segment delete)
+  splitPoints?: number[];
+  cutRanges?: VideoCutRange[];
 }
 
 export interface AudioSettings {

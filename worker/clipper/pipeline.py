@@ -120,6 +120,34 @@ def process_project(project_id: int) -> None:
         width = probe_info.get("width") or src_info.get("width")
         height = probe_info.get("height") or src_info.get("height")
         video_title = src_info.get("title") or proj.get("title") or src_path.stem
+        channel_name = src_info.get("channel") or src_info.get("uploader") or ""
+
+        # Simpan / muat YouTube Retention Heatmap ("Most Replayed") jika tersedia
+        heatmap_path = pdir / "heatmap.json"
+        raw_heatmap = src_info.get("heatmap")
+        heatmap_data: list[dict] = []
+        if isinstance(raw_heatmap, list) and len(raw_heatmap) > 0:
+            heatmap_data = [
+                {
+                    "start_time": round(float(p.get("start_time", 0.0)), 2),
+                    "end_time": round(float(p.get("end_time", 0.0)), 2),
+                    "value": round(float(p.get("value", 0.0)), 4),
+                }
+                for p in raw_heatmap
+                if isinstance(p, dict)
+            ]
+            try:
+                heatmap_path.write_text(json.dumps(heatmap_data), encoding="utf-8")
+                logger.info("Project #%d: Menyimpan %d titik YouTube Retention Heatmap.", project_id, len(heatmap_data))
+            except Exception as e:
+                logger.warning("Project #%d: Gagal menyimpan heatmap.json: %s", project_id, e)
+        elif heatmap_path.exists():
+            try:
+                loaded_hm = json.loads(heatmap_path.read_text(encoding="utf-8"))
+                if isinstance(loaded_hm, list):
+                    heatmap_data = loaded_hm
+            except Exception:
+                heatmap_data = []
 
         # Simpan thumbnail video sumber jika belum ada
         thumb_path = pdir / "source_thumb.jpg"
@@ -290,9 +318,12 @@ def process_project(project_id: int) -> None:
             total_duration=total_duration,
             clip_duration=clip_dur,
             clip_count=clip_cnt,
-            language=detected_lang or "id",
+            language=detected_lang or "auto",
             preferred_provider=llm_provider,
             on_progress=on_an_progress,
+            heatmap=heatmap_data or None,
+            video_title=video_title,
+            channel=channel_name,
         )
 
         # Jika video tidak ada ucapan atau kata terlalu sedikit, buat klip fallback proporsional

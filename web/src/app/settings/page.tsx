@@ -25,6 +25,8 @@ import {
   Laptop,
   Sliders,
   Info,
+  Upload,
+  Cookie,
 } from 'lucide-react';
 import { cleanApiKey } from '@/lib/apiKeyUtils';
 
@@ -66,6 +68,16 @@ export default function SettingsPage() {
   // Key testing state
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string } | null>>({});
+
+  // YouTube cookies.txt state
+  const [cookieStatus, setCookieStatus] = useState<{
+    exists: boolean;
+    size: number;
+    updatedAt: string | null;
+    cookieCount: number;
+  }>({ exists: false, size: 0, updatedAt: null, cookieCount: 0 });
+  const [uploadingCookie, setUploadingCookie] = useState(false);
+  const [cookieMessage, setCookieMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [keys, setKeys] = useState<KeysStatus>({
     groq: false,
@@ -135,7 +147,65 @@ export default function SettingsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    fetch('/api/settings/cookies')
+      .then((res) => res.json())
+      .then((data) => {
+        if (typeof data?.exists === 'boolean') {
+          setCookieStatus(data);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const handleUploadCookies = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingCookie(true);
+    setCookieMessage(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/settings/cookies', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCookieMessage({ ok: false, text: data.error || 'Gagal mengunggah cookies.txt' });
+      } else {
+        setCookieStatus({
+          exists: Boolean(data.exists),
+          size: Number(data.size || 0),
+          updatedAt: data.updatedAt || null,
+          cookieCount: Number(data.cookieCount || 0),
+        });
+        setCookieMessage({ ok: true, text: `Berhasil disimpan (${data.cookieCount} entri cookie aktif).` });
+      }
+    } catch (err: any) {
+      setCookieMessage({ ok: false, text: err?.message || 'Koneksi terputus.' });
+    } finally {
+      setUploadingCookie(false);
+    }
+  };
+
+  const handleDeleteCookies = async () => {
+    setUploadingCookie(true);
+    setCookieMessage(null);
+    try {
+      const res = await fetch('/api/settings/cookies', { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setCookieStatus({ exists: false, size: 0, updatedAt: null, cookieCount: 0 });
+        setCookieMessage({ ok: true, text: 'File cookies.txt telah dihapus.' });
+      }
+    } catch {
+      setCookieMessage({ ok: false, text: 'Gagal menghapus cookies.txt.' });
+    } finally {
+      setUploadingCookie(false);
+    }
+  };
 
   const toggleShow = (provider: string) => {
     setShowKeys((prev) => ({ ...prev, [provider]: !prev[provider] }));
@@ -949,6 +1019,83 @@ export default function SettingsPage() {
                   File video sumber dan cache render yang usianya melebihi batas ini akan otomatis dibersihkan secara berkala oleh sistem worker untuk menghemat ruang disk Anda.
                 </p>
               </div>
+            </div>
+
+            {/* Section 5: YouTube Anti-Bot Cookies (cookies.txt) */}
+            <div className="bg-surface-container-low p-5 rounded-xl border border-surface-container-highest/40 shadow-lg space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className="font-headline-sm text-sm font-semibold text-on-surface flex items-center gap-2">
+                  <Cookie className="w-4 h-4 text-amber-400" />
+                  <span>YouTube Anti-Bot Cookies (cookies.txt)</span>
+                </h3>
+                {cookieStatus.exists ? (
+                  <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Aktif ({cookieStatus.cookieCount} entri)
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-surface-container text-outline border border-outline-variant/30">
+                    Belum Diunggah (Opsional)
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[11px] text-outline leading-relaxed">
+                Jika unduhan YouTube terkena blokir <code className="text-on-surface font-mono">Sign in to confirm you&apos;re not a bot</code> atau video terbatas usia, unggah file <code className="text-secondary font-mono">cookies.txt</code> (format Netscape dari ekstensi browser seperti <em>Get cookies.txt LOCALLY</em>). File disimpan lokal di <code className="text-secondary font-mono">storage/cookies.txt</code> dan otomatis dipakai oleh worker <code className="font-mono">yt-dlp</code>.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <label className="px-4 py-2 rounded-lg bg-surface-container hover:bg-surface-bright text-on-surface border border-outline-variant/40 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-colors">
+                  {uploadingCookie ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5 text-primary" />
+                  )}
+                  <span>{cookieStatus.exists ? 'Ganti cookies.txt' : 'Unggah cookies.txt'}</span>
+                  <input
+                    type="file"
+                    accept=".txt"
+                    onChange={handleUploadCookies}
+                    disabled={uploadingCookie}
+                    className="hidden"
+                  />
+                </label>
+
+                {cookieStatus.exists && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteCookies}
+                    disabled={uploadingCookie}
+                    className="px-3 py-2 rounded-lg bg-error-container/15 hover:bg-error-container/30 text-error border border-error/30 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus Cookies</span>
+                  </button>
+                )}
+
+                {cookieStatus.exists && cookieStatus.updatedAt && (
+                  <span className="text-[10px] text-outline font-mono">
+                    Diperbarui: {new Date(cookieStatus.updatedAt).toLocaleString('id-ID')} ({(cookieStatus.size / 1024).toFixed(1)} KB)
+                  </span>
+                )}
+              </div>
+
+              {cookieMessage && (
+                <div
+                  className={`p-2.5 rounded-lg text-xs border flex items-center gap-2 ${
+                    cookieMessage.ok
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-error-container/20 border-error/40 text-error'
+                  }`}
+                >
+                  {cookieMessage.ok ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                  )}
+                  <span>{cookieMessage.text}</span>
+                </div>
+              )}
             </div>
 
             {/* Save Button */}

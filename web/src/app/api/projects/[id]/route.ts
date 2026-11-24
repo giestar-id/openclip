@@ -58,11 +58,26 @@ export async function GET(
       }
     }
 
+    // Baca YouTube Retention Heatmap ("Most Replayed") jika tersedia
+    let heatmap = null;
+    const heatmapFile = path.resolve(process.cwd(), '..', 'storage', 'projects', String(projectId), 'heatmap.json');
+    if (fs.existsSync(heatmapFile)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(heatmapFile, 'utf-8'));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          heatmap = parsed;
+        }
+      } catch {
+        heatmap = null;
+      }
+    }
+
     return NextResponse.json({
       project,
       clips,
       transcript,
       peaks,
+      heatmap,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

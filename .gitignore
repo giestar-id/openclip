@@ -12,6 +12,8 @@ worker/.env
 web/.env
 web/.env*.local
 *.pem
+storage/cookies.txt
+**/cookies.txt
 
 # (Pertahankan file contoh .env)
 !.env.example
@@ -66,6 +68,13 @@ htmlcov/
 worker/bin/*.exe
 worker/storage/
 *.exe
+
+# 4.1 Eksperimen Pribadi, Script Tambahan & Hasil Transkrip Mandiri
+worker/hasil_transkrip/
+worker/yt_transcribe.py
+worker/ig_transcribe.py
+worker/scripts/*
+!worker/scripts/download_fonts.py
 
 # 5. Web Frontend (Next.js & Node.js)
 web/node_modules/

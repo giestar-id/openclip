@@ -283,10 +283,11 @@ def build_filtergraph(
     fonts_dir: Path,
     duration: float = 60.0,
     overlay_png_path: Path | None = None,
+    timed_overlays: list[tuple[Path, float | None, float | None]] | None = None,
 ) -> str:
-    """Bangun filter_complex atau video filter untuk reframing + visual effects + progress bar + static overlay + caption ASS."""
+    """Bangun filter_complex atau video filter untuk reframing + visual effects + progress bar + overlay + caption ASS."""
     mode = frame.get("mode", "crop")  # 'crop', 'fit_blur', 'fit', 'split', 'social'
-    zoom = max(0.5, min(3.0, float(frame.get("zoom", 1.0))))
+    zoom = max(0.4, min(3.0, float(frame.get("zoom", 1.0))))
     offset_x = max(-85.0, min(85.0, float(frame.get("offsetX", 0.0)))) / 100.0  # -0.85 .. 0.85
     offset_y = max(-60.0, min(60.0, float(frame.get("offsetY", 0.0)))) / 100.0  # -0.60 .. 0.60
     speed = max(0.5, min(2.0, float(frame.get("speed", 1.0))))
@@ -320,58 +321,67 @@ def build_filtergraph(
         pb_y = f"{target_h - pb_h}" if pb_pos == "bottom" else "0"
         pb_filter = f",drawbox=x=0:y={pb_y}:w='min({target_w}\\,max(0\\,{target_w}*(t/{duration:.3f})))':h={pb_h}:color={pb_col}@1:t=fill"
 
-    # Filter pasca-komposisi (ProgressBar, Speed/setpts, dan Subtitle ASS)
+    # Filter pasca-komposisi: setpts ditempatkan PERTAMA agar waktu `t` pada ProgressBar & Subtitle ASS selaras 100% dengan eff_duration!
     post_filters = []
-    if pb_filter:
-        post_filters.append(pb_filter.lstrip(","))
     if speed != 1.0:
         post_filters.append(f"setpts=PTS/{speed:.4f}")
+    if pb_filter:
+        post_filters.append(pb_filter.lstrip(","))
     if ass_filter:
         post_filters.append(ass_filter)
     post_str = ",".join(post_filters) if post_filters else "null"
 
-    has_overlay = overlay_png_path is not None and overlay_png_path.exists()
-    esc_ov = _escape_filter_path(overlay_png_path) if has_overlay else ""
+    # Bangun daftar overlay (statis penuh maupun timed dengan enable='between(t,s,e)')
+    all_overlays: list[tuple[Path, float | None, float | None]] = []
+    if overlay_png_path is not None and overlay_png_path.exists():
+        all_overlays.append((overlay_png_path, None, None))
+    for ov_p, ov_s, ov_e in (timed_overlays or []):
+        if ov_p and ov_p.exists():
+            all_overlays.append((ov_p, ov_s, ov_e))
+
+    has_overlay = len(all_overlays) > 0
+
+    def _chain_overlays(in_label: str) -> tuple[str, str]:
+        """Rangkai semua PNG overlay di atas [in_label], kembalikan (filter_chain, out_label)."""
+        parts: list[str] = []
+        cur = in_label
+        for idx, (ov_p, ov_s, ov_e) in enumerate(all_overlays):
+            esc = _escape_filter_path(ov_p)
+            ov_lbl = f"ov_{idx}"
+            nxt_lbl = f"v_ov_{idx}"
+            if ov_s is not None or ov_e is not None:
+                s_val = max(0.0, float(ov_s or 0.0))
+                e_val = float(ov_e) if ov_e is not None else max(s_val + 0.1, duration * speed)
+                parts.append(f"movie='{esc}'[{ov_lbl}];[{cur}][{ov_lbl}]overlay=0:0:enable='between(t\\,{s_val:.3f}\\,{e_val:.3f})'[{nxt_lbl}]")
+            else:
+                parts.append(f"movie='{esc}'[{ov_lbl}];[{cur}][{ov_lbl}]overlay=0:0[{nxt_lbl}]")
+            cur = nxt_lbl
+        return ";".join(parts), cur
 
     if mode == "fit_blur":
         blur_sigma = int(frame.get("blur", 24))
-        # Skala blur proporsional dengan aspect ratio canvas (bebas distorsi untuk 9:16, 1:1, dan 16:9)
         ds_w = max(64, int(target_w // 4))
         ds_h = max(64, int(target_h // 4))
         ds_w = ds_w if ds_w % 2 == 0 else ds_w + 1
         ds_h = ds_h if ds_h % 2 == 0 else ds_h + 1
         ds_sigma = max(3, min(10, int(blur_sigma * 0.25 * 0.75)))
 
+        base = (
+            f"[0:v]split=2[bg_src][fg_src];"
+            f"[bg_src]scale={ds_w}:{ds_h}:force_original_aspect_ratio=increase,"
+            f"crop={ds_w}:{ds_h},"
+            f"gblur=sigma={ds_sigma}:steps=1,"
+            f"scale={target_w}:{target_h}:flags=bilinear,"
+            f"eq=brightness=-0.12:contrast=0.95[bg];"
+            f"[fg_src]scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2{fx_comma}[fg];"
+            f"[bg][fg]overlay=(W-w)/2+(W*{offset_x:.3f}):(H-h)/2+(H*{offset_y:.3f})[v_merged]"
+        )
         if has_overlay:
-            fc = (
-                f"[0:v]split=2[bg_src][fg_src];"
-                f"[bg_src]scale={ds_w}:{ds_h}:force_original_aspect_ratio=increase,"
-                f"crop={ds_w}:{ds_h},"
-                f"gblur=sigma={ds_sigma}:steps=1,"
-                f"scale={target_w}:{target_h}:flags=bilinear,"
-                f"eq=brightness=-0.12:contrast=0.95[bg];"
-                f"[fg_src]scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2{fx_comma}[fg];"
-                f"[bg][fg]overlay=(W-w)/2+(W*{offset_x:.3f}):(H-h)/2+(H*{offset_y:.3f})[v_merged];"
-                f"movie='{esc_ov}'[ov];"
-                f"[v_merged][ov]overlay=0:0[v_with_ov];"
-                f"[v_with_ov]{post_str}[outv]"
-            )
-        else:
-            fc = (
-                f"[0:v]split=2[bg_src][fg_src];"
-                f"[bg_src]scale={ds_w}:{ds_h}:force_original_aspect_ratio=increase,"
-                f"crop={ds_w}:{ds_h},"
-                f"gblur=sigma={ds_sigma}:steps=1,"
-                f"scale={target_w}:{target_h}:flags=bilinear,"
-                f"eq=brightness=-0.12:contrast=0.95[bg];"
-                f"[fg_src]scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2{fx_comma}[fg];"
-                f"[bg][fg]overlay=(W-w)/2+(W*{offset_x:.3f}):(H-h)/2+(H*{offset_y:.3f})[v_merged];"
-                f"[v_merged]{post_str}[outv]"
-            )
-        return fc
+            ov_chain, out_ov = _chain_overlays("v_merged")
+            return f"{base};{ov_chain};[{out_ov}]{post_str}[outv]"
+        return f"{base};[v_merged]{post_str}[outv]"
 
     elif mode == "split":
-        # Dual-Speaker Podcast Split Screen (Atas - Bawah)
         split_ratio = max(0.3, min(0.7, float(frame.get("splitRatio", 50)) / 100.0))
         top_h = int(target_h * split_ratio)
         top_h = top_h if top_h % 2 == 0 else top_h + 1
@@ -382,8 +392,8 @@ def build_filtergraph(
         bot_x = max(-85.0, min(85.0, float(frame.get("splitBottomOffsetX", 25.0)))) / 100.0
         top_y = max(-60.0, min(60.0, float(frame.get("splitTopOffsetY", 0.0)))) / 100.0
         bot_y = max(-60.0, min(60.0, float(frame.get("splitBottomOffsetY", 0.0)))) / 100.0
-        top_zoom = max(0.5, min(3.0, float(frame.get("splitTopZoom", frame.get("zoom", 1.0)))))
-        bot_zoom = max(0.5, min(3.0, float(frame.get("splitBottomZoom", frame.get("zoom", 1.0)))))
+        top_zoom = max(0.4, min(3.0, float(frame.get("splitTopZoom", frame.get("zoom", 1.0)))))
+        bot_zoom = max(0.4, min(3.0, float(frame.get("splitBottomZoom", frame.get("zoom", 1.0)))))
         div_w = max(0, min(12, int(frame.get("splitDividerWidth", 2))))
         div_col = frame.get("splitDividerColor", "#38bdf8")
 
@@ -409,27 +419,17 @@ def build_filtergraph(
             stacked_filters.append(fx)
         stacked_str = ",".join(stacked_filters) if stacked_filters else "null"
 
+        base = (
+            f"[0:v]split=2[t_src][b_src];"
+            f"{t_filter};"
+            f"{b_filter};"
+            f"[t_v][b_v]vstack[stacked];"
+            f"[stacked]{stacked_str}[v_split]"
+        )
         if has_overlay:
-            fc = (
-                f"[0:v]split=2[t_src][b_src];"
-                f"{t_filter};"
-                f"{b_filter};"
-                f"[t_v][b_v]vstack[stacked];"
-                f"[stacked]{stacked_str}[v_split];"
-                f"movie='{esc_ov}'[ov];"
-                f"[v_split][ov]overlay=0:0[v_with_ov];"
-                f"[v_with_ov]{post_str}[outv]"
-            )
-        else:
-            fc = (
-                f"[0:v]split=2[t_src][b_src];"
-                f"{t_filter};"
-                f"{b_filter};"
-                f"[t_v][b_v]vstack[stacked];"
-                f"[stacked]{stacked_str}[v_split];"
-                f"[v_split]{post_str}[outv]"
-            )
-        return fc
+            ov_chain, out_ov = _chain_overlays("v_split")
+            return f"{base};{ov_chain};[{out_ov}]{post_str}[outv]"
+        return f"{base};[v_split]{post_str}[outv]"
 
     elif mode == "fit":
         fit_color = str(frame.get("fitColor") or frame.get("fitBgColor") or "#000000").strip()
@@ -437,16 +437,14 @@ def build_filtergraph(
             fit_color = "0x" + fit_color[1:]
 
         if has_overlay:
-            fc = (
+            base = (
                 f"[0:v]{fx_prefix}"
                 f"scale={target_w}*{zoom:.3f}:{target_h}*{zoom:.3f}:force_original_aspect_ratio=decrease,"
                 f"crop=min(iw\\,{target_w}):min(ih\\,{target_h}),"
-                f"pad={target_w}:{target_h}:(ow-iw)/2+(ow*{offset_x:.3f}):(oh-ih)/2+(oh*{offset_y:.3f}):color={fit_color}[v_padded];"
-                f"movie='{esc_ov}'[ov];"
-                f"[v_padded][ov]overlay=0:0[v_with_ov];"
-                f"[v_with_ov]{post_str}[outv]"
+                f"pad={target_w}:{target_h}:(ow-iw)/2+(ow*{offset_x:.3f}):(oh-ih)/2+(oh*{offset_y:.3f}):color={fit_color}[v_padded]"
             )
-            return fc
+            ov_chain, out_ov = _chain_overlays("v_padded")
+            return f"{base};{ov_chain};[{out_ov}]{post_str}[outv]"
         else:
             filters = []
             if fx:
@@ -459,16 +457,12 @@ def build_filtergraph(
             return ",".join(filters)
 
     elif mode == "social":
-        # Social Profile Template: Header di atas, Video di tengah (zoom & pan), Footer di bawah
         sp = frame.get("socialProfile", {}) or {}
-
-        # Tinggi frame video tengah stabil (independen dari header & footer gap)
         vid_h_pct = max(15.0, min(90.0, float(sp.get("videoFrameHeight", 66)))) / 100.0
         vid_h = int(target_h * vid_h_pct)
         vid_h = vid_h if vid_h % 2 == 0 else vid_h + 1
         vid_h = min(target_h, vid_h)
 
-        # Posisi vertikal tengah video di kanvas (dapat digeser ke atas / ke bawah)
         vid_offset_y_pct = float(sp.get("videoFrameOffsetY", 0.0)) / 100.0
         max_vid_y = max(0, target_h - vid_h)
         raw_vid_y = int((target_h - vid_h) / 2 + (target_h * vid_offset_y_pct))
@@ -478,13 +472,8 @@ def build_filtergraph(
         if bg_color.startswith("#"):
             bg_color = "0x" + bg_color[1:]
 
-        vid_bg_color = sp.get("videoFrameBg", "#000000")
-        if vid_bg_color.startswith("#"):
-            vid_bg_color = "0x" + vid_bg_color[1:]
-
-        # Horizontal Frame Margin / Inset (Garis Kiri & Kanan yang bisa di-adjust)
         pad_px_web = max(0.0, min(50.0, float(sp.get("framePadding", 0))))
-        pad_pct = pad_px_web / 360.0  # Basis lebar kanvas editor 360px
+        pad_pct = pad_px_web / 360.0
         raw_pad_x = int(target_w * pad_pct)
         inner_w = max(200, target_w - 2 * raw_pad_x)
         inner_w = inner_w if inner_w % 2 == 0 else inner_w - 1
@@ -492,12 +481,6 @@ def build_filtergraph(
         max_pad_x = max(0, (target_w - inner_w) // 2)
         pad_x = max(0, min(max_pad_x, (raw_pad_x // 2) * 2))
 
-        eff_zoom = max(zoom, 1.0 + 2.05 * abs(offset_y))
-        crop_x = _build_dynamic_crop_x_expr(frame, inner_w, offset_x)
-        crop_y = f"min(ih-{vid_h},max(0,(ih-{vid_h})/2-({vid_h}*{offset_y:.3f})))"
-
-        # Mode Fit & Pan/Zoom Sesuai Kanvas Preview:
-        # Latar belakang blur + Video foreground (object-contain) dengan pan X/Y dan zoom
         scaled_w = int(inner_w * zoom)
         scaled_h = int(vid_h * zoom)
         scaled_w = scaled_w if scaled_w % 2 == 0 else scaled_w + 1
@@ -512,18 +495,11 @@ def build_filtergraph(
         )
 
         if has_overlay:
-            fc = (
-                f"{base_fc};"
-                f"movie='{esc_ov}'[soc_ov];"
-                f"[soc_padded][soc_ov]overlay=0:0[soc_with_ov];"
-                f"[soc_with_ov]{post_str}[outv]"
-            )
-        else:
-            fc = f"{base_fc};[soc_padded]{post_str}[outv]"
-        return fc
+            ov_chain, out_ov = _chain_overlays("soc_padded")
+            return f"{base_fc};{ov_chain};[{out_ov}]{post_str}[outv]"
+        return f"{base_fc};[soc_padded]{post_str}[outv]"
 
     else:
-        # Default: Crop / Face Track (center crop atau smart face framing terpusat)
         eff_zoom = max(zoom, 1.0 + 2.05 * abs(offset_y))
         w_scaled = int(round(target_w * eff_zoom))
         w_scaled = w_scaled if w_scaled % 2 == 0 else w_scaled + 1
@@ -536,15 +512,13 @@ def build_filtergraph(
         scale_filter = f"scale='if(gt(a,{target_w}/{target_h}),-2,{w_scaled})':'if(gt(a,{target_w}/{target_h}),{h_scaled},-2)'"
 
         if has_overlay:
-            fc = (
+            base = (
                 f"[0:v]{fx_prefix}"
                 f"{scale_filter},"
-                f"crop={target_w}:{target_h}:'{crop_x}':'{crop_y}'[v_cropped];"
-                f"movie='{esc_ov}'[ov];"
-                f"[v_cropped][ov]overlay=0:0[v_with_ov];"
-                f"[v_with_ov]{post_str}[outv]"
+                f"crop={target_w}:{target_h}:'{crop_x}':'{crop_y}'[v_cropped]"
             )
-            return fc
+            ov_chain, out_ov = _chain_overlays("v_cropped")
+            return f"{base};{ov_chain};[{out_ov}]{post_str}[outv]"
         else:
             filters = []
             if fx:
@@ -555,6 +529,172 @@ def build_filtergraph(
                 filters.append(post_str)
             return ",".join(filters)
 
+
+def _compute_active_ranges(start_sec: float, end_sec: float, cut_ranges: list[dict] | None) -> list[tuple[float, float]]:
+    """Kurangi cutRanges dari [start_sec, end_sec] menjadi daftar segmen aktif yang akan digabung."""
+    if not cut_ranges or end_sec <= start_sec:
+        return [(start_sec, end_sec)]
+    clamped = []
+    for r in cut_ranges:
+        try:
+            cs = max(start_sec, min(end_sec, float(r.get("start", 0.0))))
+            ce = max(start_sec, min(end_sec, float(r.get("end", 0.0))))
+            if ce - cs >= 0.05:
+                clamped.append((cs, ce))
+        except Exception:
+            continue
+    if not clamped:
+        return [(start_sec, end_sec)]
+    clamped.sort(key=lambda x: x[0])
+    merged: list[list[float]] = []
+    for cs, ce in clamped:
+        if not merged or cs > merged[-1][1] + 0.02:
+            merged.append([cs, ce])
+        else:
+            merged[-1][1] = max(merged[-1][1], ce)
+
+    active: list[tuple[float, float]] = []
+    cursor = start_sec
+    for cs, ce in merged:
+        if cs > cursor + 0.04:
+            active.append((cursor, cs))
+        cursor = max(cursor, ce)
+    if end_sec > cursor + 0.04:
+        active.append((cursor, end_sec))
+    return active if active else [(start_sec, end_sec)]
+
+
+def _remap_segments_for_active_ranges(
+    caption_segments: list[dict],
+    active_ranges: list[tuple[float, float]],
+) -> list[dict]:
+    """Petakan ulang timestamp caption agar selaras 100% setelah segmen video tengah dibuang (cutRanges)."""
+    def _map_t(t: float) -> float | None:
+        acc = 0.0
+        for rs, re in active_ranges:
+            if t < rs:
+                return acc
+            if rs <= t <= re:
+                return acc + (t - rs)
+            acc += (re - rs)
+        return None
+
+    remapped: list[dict] = []
+    for seg in caption_segments or []:
+        new_words = []
+        for w in seg.get("words") or []:
+            ws = float(w.get("s", seg.get("start", 0.0)))
+            we = float(w.get("e", seg.get("end", ws + 0.1)))
+            mid = (ws + we) / 2.0
+            in_active = any(rs <= mid <= re for rs, re in active_ranges)
+            if not in_active:
+                continue
+            ms = _map_t(ws)
+            me = _map_t(we)
+            if ms is None or me is None:
+                continue
+            if me <= ms:
+                me = ms + 0.05
+            new_words.append({**w, "s": round(ms, 3), "e": round(me, 3)})
+        if new_words:
+            remapped.append({
+                **seg,
+                "start": new_words[0]["s"],
+                "end": max(new_words[0]["s"] + 0.05, new_words[-1]["e"]),
+                "text": " ".join(x.get("w", "") for x in new_words),
+                "words": new_words,
+            })
+    return remapped
+
+
+def _remap_frame_tracking_for_active_ranges(
+    frame: dict,
+    clip_start: float,
+    active_ranges: list[tuple[float, float]],
+) -> dict:
+    """Petakan ulang speakerShots & trackingKeyframes (yang memakai waktu relatif thd clip_start) setelah cutRanges diterapkan."""
+    if not active_ranges:
+        return frame
+
+    def _map_abs_t(t_abs: float) -> float | None:
+        acc = 0.0
+        for rs, re in active_ranges:
+            if t_abs < rs:
+                return acc
+            if rs <= t_abs <= re:
+                return acc + (t_abs - rs)
+            acc += (re - rs)
+        return acc
+
+    updated = dict(frame)
+
+    shots = frame.get("speakerShots")
+    if isinstance(shots, list) and shots:
+        new_shots = []
+        for s in shots:
+            abs_s = clip_start + float(s.get("start", 0.0))
+            abs_e = clip_start + float(s.get("end", 0.0))
+            ms = _map_abs_t(abs_s)
+            me = _map_abs_t(abs_e)
+            if ms is not None and me is not None and me - ms >= 0.08:
+                new_shots.append({**s, "start": round(ms, 3), "end": round(me, 3)})
+        updated["speakerShots"] = new_shots
+
+    kfs = frame.get("trackingKeyframes")
+    if isinstance(kfs, list) and kfs:
+        new_kfs = []
+        for kf in kfs:
+            abs_t = clip_start + float(kf.get("time", 0.0))
+            if any(rs - 0.05 <= abs_t <= re + 0.05 for rs, re in active_ranges):
+                mt = _map_abs_t(abs_t)
+                if mt is not None:
+                    new_kfs.append({**kf, "time": round(mt, 3)})
+        updated["trackingKeyframes"] = new_kfs
+
+    return updated
+
+
+def _concat_active_ranges(src_video: Path, dst_temp: Path, active_ranges: list[tuple[float, float]]) -> float:
+    """Potong dan sambung beberapa segmen aktif [s, e] dari src_video ke file temp frame-accurate (aman meski video tanpa audio)."""
+    probe_info = media.probe(src_video)
+    has_audio = bool(probe_info.get("has_audio", True))
+
+    v_parts = []
+    a_parts = []
+    concat_inputs = []
+    total_dur = 0.0
+    for idx, (rs, re) in enumerate(active_ranges):
+        v_parts.append(f"[0:v]trim=start={rs:.3f}:end={re:.3f},setpts=PTS-STARTPTS[v{idx}]")
+        if has_audio:
+            a_parts.append(f"[0:a]atrim=start={rs:.3f}:end={re:.3f},asetpts=PTS-STARTPTS[a{idx}]")
+            concat_inputs.append(f"[v{idx}][a{idx}]")
+        else:
+            concat_inputs.append(f"[v{idx}]")
+        total_dur += max(0.05, re - rs)
+
+    if has_audio:
+        fc = ";".join(v_parts + a_parts) + f";{''.join(concat_inputs)}concat=n={len(active_ranges)}:v=1:a=1[cv][ca]"
+        args = [
+            "-i", str(src_video),
+            "-filter_complex", fc,
+            "-map", "[cv]",
+            "-map", "[ca]",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16",
+            "-c:a", "aac", "-b:a", "192k",
+            str(dst_temp),
+        ]
+    else:
+        fc = ";".join(v_parts) + f";{''.join(concat_inputs)}concat=n={len(active_ranges)}:v=1:a=0[cv]"
+        args = [
+            "-i", str(src_video),
+            "-filter_complex", fc,
+            "-map", "[cv]",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16",
+            "-an",
+            str(dst_temp),
+        ]
+    media.run_ffmpeg(args, duration=total_dur)
+    return total_dur
 
 
 def render_clip(
@@ -569,7 +709,7 @@ def render_clip(
     resolution: str = "1080p",
     on_progress: Callable[[float], None] | None = None,
 ) -> Path:
-    """Render satu klip video final secara komplit dengan optimasi kecepatan ala OpenCut."""
+    """Render satu klip video final secara komplit dengan dukungan cutRanges, timed overlays, & optimasi GPU."""
     dst_video.parent.mkdir(parents=True, exist_ok=True)
     st = {**captions.DEFAULT_STYLE, **(style or {})}
     fr = {**captions.DEFAULT_FRAME, **(frame or {})}
@@ -577,26 +717,76 @@ def render_clip(
 
     ratio = fr.get("ratio", "9:16")
     w, h = resolve_dimensions(ratio, resolution)
-    raw_duration = max(0.1, end_sec - start_sec)
-
     speed = max(0.5, min(2.0, float(fr.get("speed", 1.0))))
-    eff_duration = raw_duration / speed
+
+    active_ranges = _compute_active_ranges(start_sec, end_sec, fr.get("cutRanges"))
+    has_cuts = len(active_ranges) > 1 or (
+        len(active_ranges) == 1
+        and (abs(active_ranges[0][0] - start_sec) > 0.05 or abs(active_ranges[0][1] - end_sec) > 0.05)
+    )
 
     with tempfile.TemporaryDirectory() as td:
-        overlay_path = Path(td) / "static_overlay.png"
-        has_overlay = overlays.generate_static_overlay(fr, w, h, overlay_path)
-        actual_overlay = overlay_path if has_overlay else None
+        td_path = Path(td)
+        render_src = src_video
+        render_start = start_sec
+        render_end = end_sec
+        render_captions = caption_segments or []
 
-        ass_path = Path(td) / "subtitles.ass"
+        if has_cuts:
+            logger.info("Menerapkan %d segmen aktif (non-destructive cutRanges) sebelum render...", len(active_ranges))
+            concat_file = td_path / "cut_concat.mp4"
+            concat_dur = _concat_active_ranges(src_video, concat_file, active_ranges)
+            fr = _remap_frame_tracking_for_active_ranges(fr, start_sec, active_ranges)
+            render_src = concat_file
+            render_start = 0.0
+            render_end = concat_dur
+            render_captions = _remap_segments_for_active_ranges(render_captions, active_ranges)
+
+        raw_duration = max(0.1, render_end - render_start)
+        eff_duration = raw_duration / speed
+
+        # Cek apakah Hook Title atau Watermark punya durasi kustom (startSec / endSec)
+        ht = fr.get("hookTitle", {}) or {}
+        wm = fr.get("watermark", {}) or {}
+        ht_has_timing = bool(ht.get("enabled") and (ht.get("startSec") is not None or ht.get("endSec") is not None))
+        wm_has_timing = bool(wm.get("enabled") and (wm.get("startSec") is not None or wm.get("endSec") is not None))
+
+        timed_overlays: list[tuple[Path, float | None, float | None]] = []
+        overlay_path = td_path / "static_overlay.png"
+
+        if ht_has_timing or wm_has_timing:
+            has_static = overlays.generate_static_overlay(
+                fr, w, h, overlay_path,
+                include_social=True,
+                include_hook=not ht_has_timing,
+                include_watermark=not wm_has_timing,
+            )
+            actual_overlay = overlay_path if has_static else None
+
+            if ht_has_timing:
+                ht_png = td_path / "hook_overlay.png"
+                if overlays.generate_static_overlay(fr, w, h, ht_png, include_social=False, include_hook=True, include_watermark=False):
+                    timed_overlays.append((ht_png, ht.get("startSec"), ht.get("endSec")))
+            if wm_has_timing:
+                wm_png = td_path / "wm_overlay.png"
+                if overlays.generate_static_overlay(fr, w, h, wm_png, include_social=False, include_hook=False, include_watermark=True):
+                    timed_overlays.append((wm_png, wm.get("startSec"), wm.get("endSec")))
+            has_any_overlay = bool(actual_overlay or timed_overlays)
+        else:
+            has_overlay = overlays.generate_static_overlay(fr, w, h, overlay_path)
+            actual_overlay = overlay_path if has_overlay else None
+            has_any_overlay = has_overlay
+
+        ass_path = td_path / "subtitles.ass"
         ass_content = captions.build_ass(
-            segments=caption_segments or [],
+            segments=render_captions,
             style=st,
             width=w,
             height=h,
-            clip_start=start_sec,
-            clip_end=end_sec,
+            clip_start=render_start,
+            clip_end=render_end,
             frame=fr,
-            include_static_overlays=not has_overlay,
+            include_static_overlays=not has_any_overlay,
         )
         ass_path.write_text(ass_content, encoding="utf-8")
 
@@ -611,18 +801,21 @@ def render_clip(
 
         mode = fr.get("mode", "crop")
         encoder_args = get_optimized_video_encoder_args()
-        audio_bitrate = "192k"  # Standar kualitas OpenCut untuk konten mobile
-        use_filter_complex = mode in ("fit_blur", "split", "social") or has_overlay
+        audio_bitrate = "192k"
+        use_filter_complex = mode in ("fit_blur", "split", "social") or has_any_overlay
 
         if use_filter_complex:
             filter_complex = build_filtergraph(
-                fr, w, h, ass_path, config.FONTS_DIR, duration=eff_duration, overlay_png_path=actual_overlay
+                fr, w, h, ass_path, config.FONTS_DIR,
+                duration=eff_duration,
+                overlay_png_path=actual_overlay,
+                timed_overlays=timed_overlays,
             )
             args = [
-                "-ss", f"{start_sec:.3f}",
+                "-ss", f"{render_start:.3f}",
                 "-accurate_seek",
                 "-t", f"{raw_duration:.3f}",
-                "-i", str(src_video),
+                "-i", str(render_src),
                 "-filter_complex", filter_complex,
                 "-map", "[outv]",
                 "-map", "0:a?",
@@ -637,13 +830,16 @@ def render_clip(
             ]
         else:
             vf = build_filtergraph(
-                fr, w, h, ass_path, config.FONTS_DIR, duration=eff_duration, overlay_png_path=None
+                fr, w, h, ass_path, config.FONTS_DIR,
+                duration=eff_duration,
+                overlay_png_path=None,
+                timed_overlays=None,
             )
             args = [
-                "-ss", f"{start_sec:.3f}",
+                "-ss", f"{render_start:.3f}",
                 "-accurate_seek",
                 "-t", f"{raw_duration:.3f}",
-                "-i", str(src_video),
+                "-i", str(render_src),
                 "-vf", vf,
                 "-af", audio_filter,
                 "-fps_mode", "cfr",
@@ -668,7 +864,6 @@ def render_clip(
         try:
             media.run_ffmpeg(args, duration=eff_duration, on_progress=on_progress)
         except Exception as e:
-            # Jika hardware encoder mengalami kendala pada format video tertentu, fallback ke CPU x264
             if "-c:v" in encoder_args and encoder_args[encoder_args.index("-c:v") + 1] != "libx264":
                 logger.warning("Hardware encoder gagal (%s), beralih ke fallback CPU libx264...", e)
                 global _BEST_ENCODER_CONFIG

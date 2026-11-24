@@ -1,6 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query, queryOne, execute, toJson } from '@/lib/db';
+import { query, queryOne, execute, fromJson, toJson } from '@/lib/db';
 import { Project, Clip } from '@/lib/types';
+
+// Properti frame yang bersifat gaya/template visual (aman disalin antarklip tanpa merusak face tracking atau cutRanges tiap klip)
+const TEMPLATE_FRAME_KEYS = [
+  'ratio',
+  'mode',
+  'blur',
+  'fitColor',
+  'splitRatio',
+  'splitDividerWidth',
+  'splitDividerColor',
+  'brightness',
+  'contrast',
+  'saturation',
+  'filterPreset',
+  'filterIntensity',
+  'videoBlur',
+  'vignette',
+  'cinematicBars',
+  'cinematicBarsHeight',
+  'speed',
+  'hookTitle',
+  'progressBar',
+  'watermark',
+  'safeZonePreset',
+  'socialProfile',
+] as const;
 
 export async function POST(
   req: NextRequest,
@@ -51,8 +77,36 @@ export async function POST(
       );
 
       if (sourceEdit) {
+        const srcFrameObj = fromJson<Record<string, any> | null>(sourceEdit.frame, null);
         for (const clip of targetClips) {
           if (clip.id === currentClipId) continue;
+
+          // Gabungkan hanya properti visual template agar face-tracking & cutRanges milik tiap klip tetap aman!
+          let mergedFrameJson = sourceEdit.frame;
+          if (srcFrameObj) {
+            const existingRow = await queryOne<any>(
+              'SELECT frame FROM clip_edits WHERE clip_id = ?',
+              [clip.id]
+            );
+            const targetFrameObj = fromJson<Record<string, any>>(existingRow?.frame, {}) || {};
+            const nextFrame: Record<string, any> = { ...targetFrameObj };
+            for (const key of TEMPLATE_FRAME_KEYS) {
+              if (srcFrameObj[key] !== undefined) {
+                if (key === 'hookTitle' && srcFrameObj.hookTitle) {
+                  // Salin gaya hookTitle tanpa membawa startSec/endSec spesifik klip asal jika melebihi durasi klip target
+                  const { startSec: _s, endSec: _e, ...restHt } = srcFrameObj.hookTitle;
+                  nextFrame.hookTitle = restHt;
+                } else if (key === 'watermark' && srcFrameObj.watermark) {
+                  const { startSec: _s, endSec: _e, ...restWm } = srcFrameObj.watermark;
+                  nextFrame.watermark = restWm;
+                } else {
+                  nextFrame[key] = srcFrameObj[key];
+                }
+              }
+            }
+            mergedFrameJson = toJson(nextFrame);
+          }
+
           await execute(
             `
             INSERT INTO clip_edits (clip_id, style, frame, audio)
@@ -63,7 +117,7 @@ export async function POST(
               audio = COALESCE(excluded.audio, clip_edits.audio),
               updated_at = CURRENT_TIMESTAMP
             `,
-            [clip.id, sourceEdit.style, sourceEdit.frame, sourceEdit.audio]
+            [clip.id, sourceEdit.style, mergedFrameJson, sourceEdit.audio]
           );
         }
       }

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Clip, CaptionStyle, FrameSettings, AudioSettings, CaptionSegment, SpeakerShot } from '@/lib/types';
-import { STYLE_PRESETS, AVAILABLE_FONTS, getActivePresetId, FILTER_PRESETS, exportAss, generateSrtContent, downloadBlob } from '@/lib/captions';
+import { STYLE_PRESETS, AVAILABLE_FONTS, getActivePresetId, FILTER_PRESETS, exportAss, generateSrtContent, parseSrtToCaptionSegments, remapSegmentsForExport, downloadBlob } from '@/lib/captions';
 import {
   SlidersHorizontal,
   ChevronLeft,
@@ -17,6 +17,7 @@ import {
   FileQuestion,
   Wand2,
   Download,
+  Upload,
   Film,
   Mic,
   Activity,
@@ -187,6 +188,9 @@ export function InspectorPanel({
     setAltTitles([]);
   }, [clip?.id, clip?.title, clip?.description, clip?.hashtags]);
 
+  const srtInputRef = useRef<HTMLInputElement | null>(null);
+  const [srtImportNotice, setSrtImportNotice] = useState<{ ok: boolean; msg: string } | null>(null);
+
   // Salin seluruh transkrip subtitle sebagai teks polos
   const handleCopyTranscript = () => {
     if (!captionSegments || captionSegments.length === 0) return;
@@ -196,20 +200,54 @@ export function InspectorPanel({
     setTimeout(() => setCopiedTranscript(false), 2000);
   };
 
-  // Unduh file subtitle SRT (SubRip)
+  // Unduh file subtitle SRT (SubRip) tersinkronisasi 100% dengan Trim, Cut Ranges, & Speed klip
   const handleDownloadSrt = () => {
     if (!captionSegments || captionSegments.length === 0) return;
-    const srt = generateSrtContent(captionSegments);
+    const remapped = remapSegmentsForExport(
+      captionSegments,
+      clip?.start_sec ?? 0,
+      clip?.end_sec ?? 99999,
+      frame.cutRanges,
+      frame.speed || 1.0
+    );
+    const srt = generateSrtContent(remapped, 0);
     const fname = `clip-${clip?.id || 'export'}-subtitles.srt`;
     downloadBlob(srt, fname, 'text/plain');
   };
 
-  // Unduh file subtitle ASS (Advanced SubStation Alpha)
+  // Unduh file subtitle ASS (Advanced SubStation Alpha) tersinkronisasi dengan Trim, Cut Ranges, & Speed klip
   const handleDownloadAss = () => {
     if (!captionSegments || captionSegments.length === 0) return;
-    const ass = exportAss(captionSegments, style);
+    const remapped = remapSegmentsForExport(
+      captionSegments,
+      clip?.start_sec ?? 0,
+      clip?.end_sec ?? 99999,
+      frame.cutRanges,
+      frame.speed || 1.0
+    );
+    const ass = exportAss(remapped, style, 1080, 1920, 0);
     const fname = `clip-${clip?.id || 'export'}-styled.ass`;
     downloadBlob(ass, fname, 'text/plain');
+  };
+
+  // Import file subtitle .SRT / .VTT ke klip aktif
+  const handleImportSrtFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseSrtToCaptionSegments(text, clip?.start_sec || 0, clip?.end_sec);
+      if (parsed.length === 0) {
+        setSrtImportNotice({ ok: false, msg: 'Format .SRT/.VTT kosong atau tidak valid.' });
+      } else {
+        onUpdateSegments(parsed);
+        setSrtImportNotice({ ok: true, msg: `${parsed.length} baris subtitle diimpor!` });
+      }
+    } catch {
+      setSrtImportNotice({ ok: false, msg: 'Gagal membaca file subtitle.' });
+    }
+    setTimeout(() => setSrtImportNotice(null), 3200);
   };
 
   // Update text segmen caption
@@ -778,8 +816,24 @@ export function InspectorPanel({
                 <span className="text-[10px] text-primary/80 font-mono">SRT & ASS Ready</span>
               </div>
 
-              {/* Action Buttons: Download SRT, Download ASS, Copy Text */}
-              <div className="grid grid-cols-3 gap-1.5">
+              {/* Action Buttons: Import SRT, Download SRT, Download ASS, Copy Text */}
+              <input
+                ref={srtInputRef}
+                type="file"
+                accept=".srt,.vtt,.txt"
+                onChange={handleImportSrtFile}
+                className="hidden"
+              />
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => srtInputRef.current?.click()}
+                  className="py-1.5 px-2 rounded bg-primary/15 hover:bg-primary/25 text-primary border border-primary/40 text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors shadow-xs"
+                  title="Impor file subtitle .SRT atau .VTT (misal hasil terjemahan/koreksi) ke klip aktif"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>Import .SRT</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleDownloadSrt}
@@ -817,6 +871,17 @@ export function InspectorPanel({
                   )}
                 </button>
               </div>
+              {srtImportNotice && (
+                <div
+                  className={`text-[11px] px-2.5 py-1.5 rounded border ${
+                    srtImportNotice.ok
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-error-container/20 border-error/40 text-error'
+                  }`}
+                >
+                  {srtImportNotice.msg}
+                </div>
+              )}
 
               {/* Cadence / Chunking Preset Buttons */}
               <div className="pt-2 border-t border-outline-variant/20 space-y-1.5">
@@ -1577,18 +1642,20 @@ export function InspectorPanel({
                       onUpdateFrame({
                         ...frame,
                         hookTitle: {
+                          ...frame.hookTitle,
                           enabled: e.target.checked,
                           text: frame.hookTitle?.text || 'Rahasia Sukses di 2026 🤫',
                           bgColor: frame.hookTitle?.bgColor || '#EF4444',
                           textColor: frame.hookTitle?.textColor || '#FFFFFF',
                           fontSize: frame.hookTitle?.fontSize ?? 4.5,
                           fontWeight: frame.hookTitle?.fontWeight || 'bold',
+                          fontFamily: frame.hookTitle?.fontFamily || 'Montserrat',
                           textAlign: frame.hookTitle?.textAlign || 'center',
                           positionX: frame.hookTitle?.positionX ?? 50,
                           positionY: frame.hookTitle?.positionY ?? 6,
                           stylePreset: frame.hookTitle?.stylePreset || 'pill',
                           textCase: frame.hookTitle?.textCase || 'original',
-                          uppercase: false,
+                          uppercase: frame.hookTitle?.uppercase ?? false,
                         },
                       })
                     }
@@ -2029,6 +2096,7 @@ export function InspectorPanel({
                       onUpdateFrame({
                         ...frame,
                         watermark: {
+                          ...frame.watermark,
                           enabled: e.target.checked,
                           text: frame.watermark?.text || 'namachannel',
                           prefixIcon: frame.watermark?.prefixIcon || 'at',

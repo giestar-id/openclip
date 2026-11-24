@@ -1,4 +1,4 @@
-import { CaptionSegment, CaptionStyle, FrameSettings, AudioSettings, CaptionWordItem, FilterPreset } from './types';
+import { CaptionSegment, CaptionStyle, FrameSettings, AudioSettings, CaptionWordItem, FilterPreset, VideoCutRange } from './types';
 
 export const DEFAULT_STYLE: CaptionStyle = {
   enabled: true,
@@ -2383,6 +2383,9 @@ export const AVAILABLE_FONTS = [
 ];
 
 export interface CaptionGroup {
+  segmentId: string;
+  wordStartIdx: number;
+  wordEndIdx: number;
   start: number;
   end: number;
   lastEnd: number;
@@ -2413,6 +2416,9 @@ export function buildGroups(segments: CaptionSegment[], wordsPerLine: number): C
       const chunk = words.slice(i, i + n);
       if (chunk.length > 0) {
         groups.push({
+          segmentId: seg.id,
+          wordStartIdx: i,
+          wordEndIdx: i + chunk.length,
           start: chunk[0].s,
           lastEnd: chunk[chunk.length - 1].e,
           end: chunk[chunk.length - 1].e + 0.5,
@@ -2428,6 +2434,181 @@ export function buildGroups(segments: CaptionSegment[], wordsPerLine: number): C
   }
 
   return groups;
+}
+
+/** Gabungkan dan rapikan daftar rentang potongan (cutRanges) agar tidak tumpang tindih. */
+export function normalizeCutRanges(
+  clipStart: number,
+  clipEnd: number,
+  cutRanges?: VideoCutRange[]
+): VideoCutRange[] {
+  if (!cutRanges || cutRanges.length === 0 || clipEnd <= clipStart) return [];
+  const clamped = cutRanges
+    .map((r) => ({
+      start: Math.max(clipStart, Math.min(clipEnd, r.start)),
+      end: Math.max(clipStart, Math.min(clipEnd, r.end)),
+    }))
+    .filter((r) => r.end - r.start >= 0.05)
+    .sort((a, b) => a.start - b.start);
+
+  const merged: VideoCutRange[] = [];
+  for (const r of clamped) {
+    if (merged.length === 0 || r.start > merged[merged.length - 1].end + 0.02) {
+      merged.push({ ...r });
+    } else {
+      merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, r.end);
+    }
+  }
+  return merged;
+}
+
+/** Hitung blok segmen video pada Track V1 berdasarkan splitPoints dan cutRanges. */
+export interface TimelineVideoBlock {
+  id: string;
+  start: number;
+  end: number;
+  isCut: boolean;
+}
+
+export function getTimelineVideoBlocks(
+  clipStart: number,
+  clipEnd: number,
+  splitPoints?: number[],
+  cutRanges?: VideoCutRange[]
+): TimelineVideoBlock[] {
+  if (clipEnd <= clipStart) return [];
+  const cuts = normalizeCutRanges(clipStart, clipEnd, cutRanges);
+  const boundaries = new Set<number>([clipStart, clipEnd]);
+  for (const sp of splitPoints || []) {
+    if (sp > clipStart + 0.08 && sp < clipEnd - 0.08) {
+      boundaries.add(Number(sp.toFixed(3)));
+    }
+  }
+  for (const c of cuts) {
+    boundaries.add(Number(c.start.toFixed(3)));
+    boundaries.add(Number(c.end.toFixed(3)));
+  }
+
+  const sortedPts = Array.from(boundaries).sort((a, b) => a - b);
+  const blocks: TimelineVideoBlock[] = [];
+  for (let i = 0; i < sortedPts.length - 1; i++) {
+    const s = sortedPts[i];
+    const e = sortedPts[i + 1];
+    if (e - s < 0.04) continue;
+    const mid = (s + e) / 2;
+    const isCut = cuts.some((c) => mid >= c.start && mid <= c.end);
+    blocks.push({
+      id: `vblk_${s.toFixed(2)}_${e.toFixed(2)}`,
+      start: s,
+      end: e,
+      isCut,
+    });
+  }
+  return blocks;
+}
+
+/** Hitung segmen video aktif (yang TIDAK dibuang) untuk pemutaran & export FFmpeg. */
+export function getActiveVideoRanges(
+  clipStart: number,
+  clipEnd: number,
+  cutRanges?: VideoCutRange[]
+): VideoCutRange[] {
+  const cuts = normalizeCutRanges(clipStart, clipEnd, cutRanges);
+  if (cuts.length === 0) return [{ start: clipStart, end: clipEnd }];
+  const active: VideoCutRange[] = [];
+  let cursor = clipStart;
+  for (const c of cuts) {
+    if (c.start > cursor + 0.04) {
+      active.push({ start: cursor, end: c.start });
+    }
+    cursor = Math.max(cursor, c.end);
+  }
+  if (clipEnd > cursor + 0.04) {
+    active.push({ start: cursor, end: clipEnd });
+  }
+  return active;
+}
+
+export function getEffectiveClipDuration(
+  clipStart: number,
+  clipEnd: number,
+  cutRanges?: VideoCutRange[]
+): number {
+  const active = getActiveVideoRanges(clipStart, clipEnd, cutRanges);
+  return active.reduce((acc, r) => acc + Math.max(0, r.end - r.start), 0);
+}
+
+/**
+ * Petakan ulang segmen subtitle ke waktu relatif ekspor final (0.0s .. effectiveDuration / speed),
+ * dengan membuang kata di dalam cutRanges dan menyesuaikan kecepatan (speed).
+ * Digunakan saat ekspor file .SRT / .ASS agar 100% sinkron dengan video MP4 hasil render FFmpeg!
+ */
+export function remapSegmentsForExport(
+  segments: CaptionSegment[],
+  clipStart: number,
+  clipEnd: number,
+  cutRanges?: VideoCutRange[],
+  speed: number = 1.0
+): CaptionSegment[] {
+  const spd = Math.max(0.5, Math.min(2.0, speed || 1.0));
+  const activeRanges = getActiveVideoRanges(clipStart, clipEnd, cutRanges);
+  if (!segments || segments.length === 0 || activeRanges.length === 0) return [];
+
+  const mapTime = (t: number): number | null => {
+    let acc = 0;
+    for (const r of activeRanges) {
+      if (t < r.start) return acc / spd;
+      if (t >= r.start && t <= r.end) return (acc + (t - r.start)) / spd;
+      acc += r.end - r.start;
+    }
+    return acc / spd;
+  };
+
+  const remapped: CaptionSegment[] = [];
+  for (const seg of segments) {
+    const rawWords: CaptionWordItem[] =
+      seg.words && seg.words.length > 0
+        ? seg.words
+        : (seg.text || '')
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((w, idx, arr) => {
+              const dur = Math.max(0.1, seg.end - seg.start);
+              const step = dur / Math.max(1, arr.length);
+              return {
+                w,
+                s: seg.start + idx * step,
+                e: seg.start + (idx + 1) * step,
+                hl: false,
+              };
+            });
+
+    const keptWords: CaptionWordItem[] = [];
+    for (const w of rawWords) {
+      const mid = (w.s + w.e) / 2;
+      const inActive = activeRanges.some((r) => mid >= r.start - 0.02 && mid <= r.end + 0.02);
+      if (!inActive) continue;
+      const ms = mapTime(Math.max(clipStart, w.s));
+      const me = mapTime(Math.min(clipEnd, w.e));
+      if (ms === null || me === null) continue;
+      keptWords.push({
+        ...w,
+        s: Math.round(ms * 1000) / 1000,
+        e: Math.round(Math.max(ms + 0.05, me) * 1000) / 1000,
+      });
+    }
+
+    if (keptWords.length > 0) {
+      remapped.push({
+        ...seg,
+        start: keptWords[0].s,
+        end: Math.max(keptWords[0].s + 0.08, keptWords[keptWords.length - 1].e),
+        text: keptWords.map((x) => x.w).join(' '),
+        words: keptWords,
+      });
+    }
+  }
+  return remapped;
 }
 
 export function formatTimecode(sec: number, fps = 30): string {
@@ -2608,6 +2789,112 @@ export function generateSrtContent(segments: CaptionSegment[], offsetSec: number
       return `${idx + 1}\n${formatSrtTime(start)} --> ${formatSrtTime(end)}\n${seg.text.trim()}\n`;
     })
     .join('\n');
+}
+
+/**
+ * Parse timestamp SRT/VTT (HH:MM:SS,mmm atau MM:SS.mmm) menjadi detik float.
+ */
+export function parseSrtTimestamp(raw: string): number | null {
+  const cleaned = raw.trim().replace(',', '.');
+  const parts = cleaned.split(':');
+  if (parts.length === 3) {
+    const h = parseFloat(parts[0]);
+    const m = parseFloat(parts[1]);
+    const s = parseFloat(parts[2]);
+    if ([h, m, s].some(Number.isNaN)) return null;
+    return h * 3600 + m * 60 + s;
+  }
+  if (parts.length === 2) {
+    const m = parseFloat(parts[0]);
+    const s = parseFloat(parts[1]);
+    if ([m, s].some(Number.isNaN)) return null;
+    return m * 60 + s;
+  }
+  return null;
+}
+
+/**
+ * Parse isi file .SRT / .VTT menjadi CaptionSegment[] siap pakai di Editor OpenClip.
+ * Mendukung auto-deteksi:
+ * - SRT relatif klip (dimulai di 00:00:00) -> otomatis digeser +clipStartSec agar sinkron dengan video.
+ * - SRT full video (sudah memiliki timestamp dalam rentang [clipStartSec, clipEndSec]) -> otomatis difilter ke rentang klip.
+ */
+export function parseSrtToCaptionSegments(
+  content: string,
+  clipStartSec: number = 0,
+  clipEndSec?: number
+): CaptionSegment[] {
+  const normalized = content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const blocks = normalized.split(/\n{2,}/);
+
+  const rawCues: Array<{ start: number; end: number; text: string }> = [];
+  const timeRe = /(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})/;
+
+  for (const block of blocks) {
+    const lines = block
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) continue;
+    if (lines[0].toUpperCase().startsWith('WEBVTT') || lines[0].startsWith('NOTE')) continue;
+
+    const timeLineIdx = lines.findIndex((l) => timeRe.test(l));
+    if (timeLineIdx === -1) continue;
+
+    const m = lines[timeLineIdx].match(timeRe);
+    if (!m) continue;
+    const start = parseSrtTimestamp(m[1]);
+    const end = parseSrtTimestamp(m[2]);
+    if (start === null || end === null || end <= start) continue;
+
+    const text = lines
+      .slice(timeLineIdx + 1)
+      .join(' ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\{\\[^}]+\}/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!text) continue;
+    rawCues.push({ start, end, text });
+  }
+
+  if (rawCues.length === 0) return [];
+
+  // Cek apakah cue sudah memakai timestamp absolut video penuh yang tumpang tindih dengan klip
+  const hasAbsoluteOverlap =
+    clipStartSec > 5 &&
+    typeof clipEndSec === 'number' &&
+    clipEndSec > clipStartSec &&
+    rawCues.some((c) => c.end > clipStartSec && c.start < clipEndSec);
+
+  const selectedCues = hasAbsoluteOverlap && typeof clipEndSec === 'number'
+    ? rawCues.filter((c) => c.end >= clipStartSec - 0.5 && c.start <= clipEndSec + 0.5)
+    : rawCues;
+
+  const offset = hasAbsoluteOverlap ? 0 : clipStartSec;
+
+  return selectedCues.map((cue, idx) => {
+    const absStart = Math.round((cue.start + offset) * 1000) / 1000;
+    const absEnd = Math.round(Math.max(absStart + 0.1, cue.end + offset) * 1000) / 1000;
+    const tokens = cue.text.split(/\s+/).filter(Boolean);
+    const dur = Math.max(0.1, absEnd - absStart);
+    const step = dur / Math.max(1, tokens.length);
+    const words: CaptionWordItem[] = tokens.map((w, wIdx) => ({
+      w,
+      s: Math.round((absStart + wIdx * step) * 1000) / 1000,
+      e: Math.round((absStart + (wIdx + 1) * step) * 1000) / 1000,
+      hl: false,
+    }));
+
+    return {
+      id: `srt_${idx + 1}_${Date.now()}`,
+      start: absStart,
+      end: absEnd,
+      text: cue.text,
+      words,
+    };
+  });
 }
 
 /**

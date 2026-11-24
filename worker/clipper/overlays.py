@@ -116,8 +116,16 @@ def _get_font(font_family: str, size: int, weight: str = "bold") -> ImageFont.Fr
     return ImageFont.load_default()
 
 
-def generate_static_overlay(frame: dict, target_w: int, target_h: int, output_path: Path) -> bool:
-    """Bangun gambar overlay transparan RGBA (PNG) untuk elemen statis.
+def generate_static_overlay(
+    frame: dict,
+    target_w: int,
+    target_h: int,
+    output_path: Path,
+    include_social: bool = True,
+    include_hook: bool = True,
+    include_watermark: bool = True,
+) -> bool:
+    """Bangun gambar overlay transparan RGBA (PNG) untuk elemen statis atau per-layer.
 
     Mengembalikan True jika ada elemen visual yang digambar, atau False jika kanvas kosong.
     """
@@ -126,9 +134,9 @@ def generate_static_overlay(frame: dict, target_w: int, target_h: int, output_pa
     wm = frame.get("watermark", {}) or {}
     sp = frame.get("socialProfile", {}) or {}
 
-    has_social = mode == "social"
-    has_ht = bool(ht.get("enabled") and ht.get("text", "").strip())
-    has_wm = bool(wm.get("enabled") and wm.get("text", "").strip())
+    has_social = include_social and (mode == "social")
+    has_ht = include_hook and bool(ht.get("enabled") and ht.get("text", "").strip())
+    has_wm = include_watermark and bool(wm.get("enabled") and wm.get("text", "").strip())
 
     if not (has_social or has_ht or has_wm):
         return False

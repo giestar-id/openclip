@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Clip, FrameSettings, ExportRecord, CaptionStyle, AudioSettings, CaptionSegment } from '@/lib/types';
-import { exportSrt, exportAss, DEFAULT_STYLE } from '@/lib/captions';
+import { exportSrt, exportAss, DEFAULT_STYLE, getEffectiveClipDuration, remapSegmentsForExport } from '@/lib/captions';
 import {
   Film,
   X,
@@ -43,6 +43,13 @@ export function ExportModal({
   const [isExporting, setIsExporting] = useState(false);
   const [exportRecord, setExportRecord] = useState<ExportRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Reset state modal saat ditutup ATAU saat berpindah klip agar tidak menampilkan hasil ekspor klip lama!
+  useEffect(() => {
+    setIsExporting(false);
+    setExportRecord(null);
+    setError(null);
+  }, [isOpen, clip?.id]);
 
   // Polling export progress saat sedang rendering
   useEffect(() => {
@@ -117,8 +124,14 @@ export function ExportModal({
 
   const handleDownloadSrt = () => {
     if (!clip || !captionSegments) return;
-    const offset = clip.preview_start_sec ?? 0;
-    const content = exportSrt(captionSegments, offset);
+    const remapped = remapSegmentsForExport(
+      captionSegments,
+      clip.start_sec ?? 0,
+      clip.end_sec ?? 60,
+      frame.cutRanges,
+      frame.speed || 1.0
+    );
+    const content = exportSrt(remapped, 0);
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -130,9 +143,15 @@ export function ExportModal({
 
   const handleDownloadAss = () => {
     if (!clip || !captionSegments) return;
-    const offset = clip.preview_start_sec ?? 0;
     const currentStyle = style || DEFAULT_STYLE;
-    const content = exportAss(captionSegments, currentStyle, 1080, 1920, offset);
+    const remapped = remapSegmentsForExport(
+      captionSegments,
+      clip.start_sec ?? 0,
+      clip.end_sec ?? 60,
+      frame.cutRanges,
+      frame.speed || 1.0
+    );
+    const content = exportAss(remapped, currentStyle, 1080, 1920, 0);
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -175,7 +194,7 @@ export function ExportModal({
               <span>•</span>
               <span>Caption: {style?.enabled !== false ? 'Aktif' : 'Nonaktif'}</span>
               <span>•</span>
-              <span>Durasi: {((clip.end_sec - clip.start_sec) || 30).toFixed(1)}s</span>
+              <span>Durasi: {(getEffectiveClipDuration(clip.start_sec, clip.end_sec, frame.cutRanges) || 30).toFixed(1)}s</span>
             </div>
           </div>
 
